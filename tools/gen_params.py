@@ -142,8 +142,9 @@ text("disp_play", "Playing")
 # ---- the screen's pictures (the engine moves them; art/make_art.py draws them as display-only filmstrip meters) ----
 NCOL = 288                     # waveform columns (4 px each)
 WAVE_FRAMES = 76               # 0 empty, 1..75: 25 heights x 3 colours (bass-heavy red, mid green, bright blue)
-OV_FRAMES = 52                 # over each column: 0 none, 1 played, 2..17 playhead (pad colour), 18..33 chop line (pad colour),
-                               # 34..49 chop line over played, 50 the other bank's chop line, 51 that over played
+OV_FRAMES = 68                 # over each column: 0 none, 1 played, 2..17 playhead (pad colour), 18..33 chop line (pad colour),
+                               # 34..49 chop line over played, 50/51 grey (unused since 1.0.23), 52..67 another bank's chop line
+                               # (its pad's colour, faded; the builder caps a 160 px strip at 76 frames)
 NMARK = 36                     # tab slots under the waveform (8 columns, 32 px each)
 COLS_PER_MARK = 8
 MK_FRAMES = 1 + 16 * COLS_PER_MARK * 2   # 0 none, else 1 + (pad * 8 + its column in the slot) * 2 + selected
@@ -210,6 +211,14 @@ opt("p_layer", "Layer Group", ["OFF", "1", "2", "3", "4"], 0, qlink_ticks=QT)   
 # ---- 1.0.18, appended ----
 for i in range(36):   # a double tap on a tab slot: the chop whose tab is there is selected (its pad, CUE, NUDGE, the Q-Links)
     trig("tt%02d" % i, "Tab Tap %02d" % i)
+# ---- 1.0.22, appended ----
+for i in range(16):   # a double tap on FX preset i+1 (the FX page): layered after the pad's preset, or taken off
+    trig("fl%02d" % i, "FX Layer %02d" % i)
+# ---- 1.0.23, appended ----
+opt("keymap", "MIDI Keys", ["PADS", "ALL 64"], 0, qlink_ticks=QT)
+# ---- 1.0.24, appended ----
+for i in range(16):   # the FX page's presets as pictures under clear buttons: 0 off, 1 the pad's own, 2 layered after it
+    vis("fp%02d" % i, "FX Preset %02d" % i, 3)   # PADS: notes play the bank on screen; ALL 64: notes 36..99 play chops 1..64
 keys = [p["key"] for p in P]
 assert len(set(keys)) == len(keys), "duplicate keys"
 with open(os.path.join(HERE, "params.json"), "w") as f:
@@ -224,7 +233,8 @@ with open(os.path.join(HERE, "src", "pdefs.h"), "w") as f:
     f.write("#define NCOL %d\n#define WAVE_FRAMES %d\n#define OV_FRAMES %d\n#define NMARK %d\n#define COLS_PER_MARK %d\n#define MK_FRAMES %d\n"
             % (NCOL, WAVE_FRAMES, OV_FRAMES, NMARK, COLS_PER_MARK, MK_FRAMES))
     f.write("enum {\n" + "".join("    P_%s,\n" % k.upper() for k in keys) + "    NP\n};\n")
-    # the pictures (the engine's vis[]): two runs of params, wv000..sb, then (0.8, appended) the tab numbers mn00..
+    # the pictures (the engine's vis[]): three runs of params, wv000..sb, then (0.8, appended) the tab numbers mn00.., then
+    # (1.0.24, appended) the FX presets fp00..
     vk = [i for i, p in enumerate(P) if p["kind"] == "vis"]
     runs = [[vk[0]]]
     for i in vk[1:]:
@@ -232,9 +242,10 @@ with open(os.path.join(HERE, "src", "pdefs.h"), "w") as f:
             runs[-1].append(i)
         else:
             runs.append([i])
-    assert len(runs) == 2, "the pictures must be two runs of params"
-    f.write("#define SB_FRAMES %d\n#define MN_FRAMES %d\n#define P_VIS0 P_%s\n#define NVIS1 %d\n#define P_VIS2 P_%s\n#define NVIS %d\n"
-            % (SB_FRAMES, NMARK_NUM_FRAMES, P[runs[0][0]]["key"].upper(), len(runs[0]), P[runs[1][0]]["key"].upper(), len(vk)))
+    assert len(runs) == 3, "the pictures must be three runs of params"
+    f.write("#define SB_FRAMES %d\n#define MN_FRAMES %d\n#define P_VIS0 P_%s\n#define NVIS1 %d\n#define P_VIS2 P_%s\n#define NVIS2 %d\n#define P_VIS3 P_%s\n#define NVIS %d\n"
+            % (SB_FRAMES, NMARK_NUM_FRAMES, P[runs[0][0]]["key"].upper(), len(runs[0]), P[runs[1][0]]["key"].upper(),
+               len(runs[0]) + len(runs[1]), P[runs[2][0]]["key"].upper(), len(vk)))
     f.write("static const char *const KEYS[NP] = {\n" + "".join('    "%s",\n' % k for k in keys) + "};\n")
     f.write("static const char *const NAMES[NP] = {\n" + "".join('    "%s",\n' % p["name"].upper() for p in P) + "};\n")
     lo = [p.get("min", 0) for p in P]

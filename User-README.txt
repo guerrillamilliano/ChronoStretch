@@ -5,7 +5,11 @@ ChronoStretch: quick start
    own (pad 1 bottom left), each in its own colour. Under the waveform each chop has a tab in that colour with its
    number, and a line from the tab's point up through the waveform marks where the chop starts.
    Up to 64 chops, numbered 1-64 through banks A-D: set BANK (top right) and the same pads play that bank (17-32 on B,
-   33-48 on C, 49-64 on D). CUES sets how many (16, 32, 48 or 64; 64 to start).
+   33-48 on C, 49-64 on D). CUES sets how many (16, 32, 48 or 64; 64 to start). The other banks' chops show on the
+   waveform too, as faded lines in their pads' colours.
+   MIDI KEYS (SOUND page): ALL 64 lets a keyboard play every chop without switching banks: C1 (note 36) is chop 1, up
+   to D#6 (note 99) for chop 64. The MPC's own pads then follow the same notes; PADS (the default) plays the bank on
+   screen.
 3. The chops play in time with your project (SYNC ON follows MPC's tempo) and in the key you pick. KEY - and + on
    the main page move the sound a semitone at a time; the box between them shows the sound's key and the key it now
    plays in (C MIN > D MIN). The tempo stays the same. The line above the waveform shows the tempo and key.
@@ -54,6 +58,9 @@ ChronoStretch: quick start
    even on a pad that is playing. WARP-SPEED is a half-time effect: each SWEEP / RISE length (from the
    hit) plays its first half at half speed, an octave down, then catches up, so it stays in time; AMOUNT smooths the
    seams.
+   LAYERS: double-tap a preset to layer it after the pad's own (it shows as TAPE + LOFI on the line above the knobs);
+   double-tap it again to take it off. The highlight shows the pad's own preset; a tap on a layered one swaps the two. Up to 4 presets a pad, played in the order added, all sharing the knobs below;
+   a tap still picks the pad's own preset, and FX ON switches the whole chain off and on.
 
 Q-Links
 Each page has its own Q-Link set (NUDGE is Q-Link 2 on the PAD page). On the main page Q-Links 1-4 are ZOOM, SCROLL,

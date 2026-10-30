@@ -571,6 +571,19 @@ int main(int argc, char **argv) {
         e->last_pad = -1; msg(e, 0x90, 70, 100); render(e, blk, 128);
         char buf[128]; get_param(e, "disp_pad", buf, sizeof buf);
         CHECK(e->last_pad == -1 && strstr(buf, "LEARN PADS"), "a note on no pad says so: %s", buf);
+        {   /* 1.0.23: MIDI KEYS ALL 64: notes 36..99 play chops 1..64 whatever BANK shows; the other banks' chops faded on the
+             * waveform in their pads' colours */
+            setp(e, "cue_count", 3); setp(e, "find", 1); setp(e, "bank", 0); setp(e, "keymap", 1);
+            int k1 = PAD_OF(36), k17 = PAD_OF(52), k64 = PAD_OF(99), b0 = opt(e, P_BANK);
+            msg(e, 0xB0, 120, 0); render(e, blk, 128);
+            setp(e, "keymap", 0); setp(e, "zoom", 0); setp(e, "bank", 0); setp(e, "sel_pad", 0);
+            char buf0[32]; get_param(e, "display_rev", buf0, sizeof buf0);
+            long v0_, vl_; view_of(e, e->cur, &v0_, &vl_);
+            int f17 = e->cue[16] >= 0 ? e->vis[P_OV000 + (int)((double)(e->cue[16] - v0_) * NCOL / vl_) - P_VIS0] : -1;
+            (void)b0;
+            CHECK(k1 == 0 && k17 == 16 && k64 == 63 && f17 == 52, "MIDI KEYS ALL 64: notes 36, 52, 99 play chops 1, 17, 64 whatever the bank (%d %d %d); chop 17 shows faded in pad 1's colour (frame %d)", k1, k17, k64, f17);
+            setp(e, "cue_count", 0); setp(e, "find", 1);
+        }
         {   /* 1.0.15: LAYER GROUP: pads 1 and 6 in group 1, a hit on either plays both; out of the group, one again */
             setp(e, "sel_pad", 0); setp(e, "p_layer", 1); setp(e, "sel_pad", 5); setp(e, "p_layer", 1); setp(e, "sel_pad", 0);
             msg(e, 0xB0, 120, 0); render(e, blk, 128);
@@ -760,6 +773,45 @@ int main(int argc, char **argv) {
             CHECK(a1 == FX_TAPE && e->val[P_P_FX_ON] == 1 && a2 == 0 && k2 == FX_TAPE && a3 == FX_TAPE,
                   "picking TAPE turns the FX on; the switch turns them off and back on to TAPE (%d %d %d)", a1, a2, a3);
             setp(e, "p_fx_on", 0);
+        }
+        {   /* 1.0.22: FX layers: a double tap on a preset (its two taps pick it, then its layer switch) layers it after the
+             * pad's preset, which stays; the chain plays both; a second double tap takes it off; the project keeps them */
+            setp(e, "sel_pad", 0); setp(e, "p_fx_pick", FX_TAPE - 1); setp(e, "p_fx_on", 1); setp(e, "p_fx_amt", 0.8);
+            int16_t *w1 = play(e, 36, 300, 300);
+            setp(e, "p_fx_pick", FX_LOFI - 1); setp(e, "p_fx_pick", FX_LOFI - 1); setp(e, "fl00", 1);   /* a double tap on LOFI */
+            int m1 = e->pad[0].fx, l1 = e->pad[0].fx_lay[0];
+            {   /* 1.0.24: both lit on the FX page: TAPE (its own) and LOFI (layered), the rest off */
+                char rv[16]; get_param(e, "display_rev", rv, sizeof rv);
+                int others = 0; for (int k = 0; k < 16; k++) if (k != FX_TAPE - 1 && k != FX_LOFI - 1) others += e->vis[NVIS2 + k];
+                CHECK(e->vis[NVIS2 + FX_TAPE - 1] == 1 && e->vis[NVIS2 + FX_LOFI - 1] == 2 && others == 0,
+                      "the FX page lights the pad's own preset and its layers (TAPE %d, LOFI %d, others %d)", e->vis[NVIS2 + FX_TAPE - 1], e->vis[NVIS2 + FX_LOFI - 1], others);
+            }
+            msg(e, 0x90, 36, 100); { int16_t bk[256]; render(e, bk, 128); }
+            int nu = 0; for (int j = 0; j < NV; j++) if (e->v[j].active && e->v[j].pad == 0 && !e->v[j].done_fade) nu = e->v[j].nu;
+            msg(e, 0xB0, 120, 0);
+            int16_t *w2 = play(e, 36, 300, 300);
+            double diff = 0, ref = 0;
+            for (long j = 0; j < 300 * 256; j++) { double d = w2[j] - w1[j]; diff += d * d; ref += (double)w1[j] * w1[j]; }
+            diff = sqrt(diff / (300 * 256)); ref = sqrt(ref / (300 * 256));
+            char fxl[200]; get_param(e, "disp_fx", fxl, sizeof fxl);
+            static char st3[16384]; get_param(e, "state", st3, sizeof st3);
+            chrono_t *e5 = create(NULL); wait_sound(e5); set_param(e5, "state", st3); wait_sound(e5);
+            int kept = e5->pad[0].fx == FX_TAPE && e5->pad[0].fx_lay[0] == FX_LOFI;
+            destroy(e5);
+            int16_t bk2[256]; for (int j = 0; j < 300; j++) render(e, bk2, 128);
+            setp(e, "p_fx_pick", FX_LOFI - 1); setp(e, "p_fx_pick", FX_LOFI - 1); setp(e, "fl00", 0);   /* again (MPC's switch flipped back) */
+            int m2 = e->pad[0].fx, l2 = e->pad[0].fx_lay[0];
+            CHECK(m1 == FX_TAPE && l1 == FX_LOFI && nu == 2 && diff > 0.1 * ref && strstr(fxl, "TAPE + LOFI") && kept && m2 == FX_TAPE && l2 == 0,
+                  "FX layers: a double tap on LOFI layers it after TAPE (%d %d, %d running, %.0f%% different: %s); the project keeps it; again takes it off (%d %d)",
+                  m1, l1, nu, 100 * diff / ref, fxl, m2, l2);
+            free(w1); free(w2);
+            for (int j = 0; j < 600; j++) render(e, bk2, 128);
+            setp(e, "p_fx_pick", FX_LOFI - 1); setp(e, "p_fx_pick", FX_LOFI - 1); setp(e, "fl00", 1);   /* LOFI layered again */
+            for (int j = 0; j < 600; j++) render(e, bk2, 128);
+            setp(e, "p_fx_pick", FX_LOFI - 1);   /* a tap on it */
+            int m3 = e->pad[0].fx, l3 = e->pad[0].fx_lay[0];
+            CHECK(m3 == FX_LOFI && l3 == FX_TAPE, "a tap on a layered preset swaps it with the pad's own: nothing drops out (%d %d)", m3, l3);
+            setp(e, "p_fx_on", 0); setp(e, "p_fx_amt", 0.6); memset(e->pad[0].fx_lay, 0, sizeof e->pad[0].fx_lay);
         }
         /* 1.0.2: DRIVE, TONE, WIDTH, and FX changed while a pad plays */
         setp(e, "p_fx", 0); setp(e, "p_len", 8); setp(e, "sync", 0);

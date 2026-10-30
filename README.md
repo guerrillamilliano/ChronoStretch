@@ -18,13 +18,16 @@ the full user guide.
 - **Analysis on load:** tempo and beat grid, key (with the file name's "85 BPM" or "C# min" as hints), the hits, and a
   waveform you can zoom down to a sample a column.
 - **Chopping:** by TRANSIENT (SENSITIVITY), EQUAL slices, BPM (every half beat to 2 bars), MANUAL (hit pads as it
-  plays), or RANDOM. Up to 64 chops, numbered through banks A-D. Drag a chop's tab, or move it with CUE and NUDGE
-  (sample-fine at deep zoom); SNAP ZERO CROSS for clean loop starts; ADD, DEL and a 10-step UNDO.
+  plays), or RANDOM. Up to 64 chops, numbered through banks A-D; the other banks' chops show faded in their pads'
+  colours. Drag a chop's tab (double-tap it to select it), or move it with CUE and NUDGE (sample-fine at deep zoom);
+  SNAP ZERO CROSS for clean loop starts; ADD, DEL and a 10-step UNDO.
 - **Playing:** in time with the project (SYNC, 1/2 SPEED for double-time patterns) and in key (KEY - and + by
   semitones, tempo kept). Per pad: level, filter, attack, release, pitch, speed, reverse, length, mode (ONE SHOT,
-  CONTINUE, GATE, HOLD), choke groups and layer groups (pads that play together).
+  CONTINUE, GATE, HOLD), choke groups and layer groups (pads that play together). MIDI KEYS ALL 64 lets a keyboard
+  play every chop from C1 up, across all banks.
 - **FX per pad:** 16 presets (LOFI, TELEPHONE, filters, shelves, NOTCH, SWEEP, RISER, ROBOT, RADIO, V CURVE,
-  WARP-SPEED half-time, TAPE) with AMOUNT, SWEEP / RISE, MIX, DRIVE, TONE, WIDTH and RESONANCE.
+  WARP-SPEED half-time, TAPE) with AMOUNT, SWEEP / RISE, MIX, DRIVE, TONE, WIDTH and RESONANCE. Double-tap presets to
+  layer up to 4 on a pad; the page lights them all.
 - **Drums:** a harmonic/percussive split in the background, then drums OFF or SOLO, for the whole sound or per pad.
 - **MPC's STOP** stops everything while a sequence plays; the on-screen STOP buttons always do.
 
@@ -38,7 +41,7 @@ is that toolkit's wrapper with changes ChronoStretch relies on (`AUTOMATE_PER_BL
 1. Clone mpc-vst-plugins, copy this repo's files (except `windows/` and `toolkit/`) into `ports/chrono/`, and
    `toolkit/wrapper/vst2_wrap.c` over the toolkit's `wrapper/vst2_wrap.c`.
 2. Generate the parameters and the art: `tools/gen.ps1` (Docker), or `python3 tools/gen_params.py` and
-   `python3 art/make_art.py` (needs Pillow).
+   `python3 art/make_art.py` (needs Pillow; run inside the toolkit, whose `tools/html_art/fonts` Titillium it uses).
 3. Build: `tools/build_port.sh ports/chrono/vst.json` from the toolkit's root. On Windows with Docker Desktop only, use
    `windows/mpc-build.ps1` (build the helper image first: `docker build -t mpc-builder windows/mpc-builder`).
 4. Test: `test/demo.ps1` (the offline checks under ASan/UBSan: analysis, chopping, playback, the browser, the touch and

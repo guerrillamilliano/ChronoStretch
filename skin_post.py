@@ -164,6 +164,21 @@ for c in where:   # the tab strips, as placed (section 3)
     td = keys[int(c["handle remapping"]["map"][0]["value"].split()[1])]   # td<NN>
     c["handle remapping"]["map"].append({"key": "Open", "value": "Parameter %d" % keys.index("tt" + td[2:])})
 
+# 3e. the FX page's presets also take a double tap: it toggles the preset's layer trigger (fl<NN>) through a second handle,
+# "Layer", and the engine layers that preset after the pad's own (or takes it off)
+nl = 0
+for dd in local:
+    m = re.match(r"shSeg_p_fx_pick_(\d+)$", dd["key"])
+    if not m or not isinstance(dd.get("value"), dict):
+        continue
+    dd["value"]["actions"] = [act("Mouse Down", "Q-Link", "Data"), act("Double Click", "Toggle Switch", "Layer")]
+    for c in placed:
+        if c["componentData"]["type"] == dd["key"]:
+            c["handle remapping"]["map"].append({"key": "Layer", "value": "Parameter %d" % keys.index("fl%02d" % int(m.group(1)))})
+            nl += 1
+if nl != 16:
+    sys.exit("skin_post: expected the 16 FX presets placed once each, found %d" % nl)
+
 # 4. the option grids' cells
 cells = {}
 for g in geo["grids"]:

@@ -31,7 +31,7 @@ Y0 = 86                                  # the plugin area's top (layout y); the
 W, H = 1280, 628
 NCOL, COL_W = 288, 4
 WV = (64, 192, NCOL * COL_W, 160)        # x, y, w, h of the waveform
-WAVE_FRAMES, OV_FRAMES = 76, 52
+WAVE_FRAMES, OV_FRAMES = 76, 68
 NMARK, MK_STEP, MK_W, MK_H = 36, 32, 56, 28
 COLS_PER_MARK = MK_STEP // COL_W
 MK_FRAMES = 1 + 16 * COLS_PER_MARK * 2
@@ -69,7 +69,12 @@ def blank(w, h):
     return Image.new("RGBA", (w, h), (0, 0, 0, 0))
 
 
-def font(size):
+TITILLIUM = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "..", "tools", "html_art", "fonts", "TitilliumWeb-SemiBold.ttf")
+
+
+def font(size, face=None):   # face: a TrueType file (the skin's own Titillium for button words), else PIL's default
+    if face and os.path.exists(face):
+        return ImageFont.truetype(face, size)
     try:
         return ImageFont.load_default(size=size)
     except TypeError:
@@ -344,9 +349,36 @@ def wave_strip():
     save(strip, "wv_strip.png")
 
 
+FX_NAMES = ["LOFI", "TELEPHONE", "LOW PASS", "HIGH PASS", "BAND PASS", "VINTAGE", "LOW SHELF", "HIGH SHELF", "NOTCH", "SWEEP",
+            "RISER", "ROBOT", "RADIO", "V CURVE", "WARP-SPEED", "TAPE"]
+FXP_W, FXP_H, FXP_X0, FXP_Y0 = 196, 36, 165, 195   # the FX page's preset buttons (enum_h cx=560 cy=213 sw=196 sh=36 rows=4)
+
+
+def fx_preset_pictures():
+    """The FX page's 16 presets as pictures under clear buttons, so more than one can be lit: 0 off (a steel button), 1 the
+    pad's own (lit ice blue, like a picked option), 2 layered after it (steel, ringed and lettered in ice blue, a +)."""
+    f = font(15, TITILLIUM)
+    for s, name in enumerate(FX_NAMES):
+        for fr in range(3):
+            img = plate(FXP_W, FXP_H, 6, ICE_HI, ICE_LO, grain=16, light=(255, 255, 255, 200)) if fr == 1 else                 plate(FXP_W, FXP_H, 6, STEEL_HI, STEEL_LO, light=(255, 255, 255, 110), edge=(0, 0, 0, 190))
+            d = ImageDraw.Draw(img)
+            if fr == 2:
+                d.rounded_rectangle([1, 1, FXP_W - 2, FXP_H - 2], radius=6, outline=ICE_HI + (255,), width=3)
+            txt = ("+ " if fr == 2 else "") + name
+            tw = d.textlength(txt, font=f)
+            colour = (12, 26, 36, 255) if fr == 1 else ICE_HI + (255,) if fr == 2 else (238, 243, 247, 255)
+            d.text(((FXP_W - tw) / 2, FXP_H / 2), txt, fill=colour, font=f, anchor="lm")
+            save(img, "fp_%02d_%d.png" % (s, fr))
+    for st, a in (("on", 2), ("off", 2)):   # the clear buttons over them
+        c = blank(FXP_W, FXP_H)
+        ImageDraw.Draw(c).rectangle([0, 0, FXP_W - 1, FXP_H - 1], fill=(0, 0, 0, a))
+        save(c, "fxcell_%s.png" % st)
+
+
 def overlay_strip():
-    """52 frames of 4 x 160 over a column: 0 none, 1 played, 2..17 playhead (pad colour), 18..33 chop line (pad colour),
-    34..49 chop line over played, 50 the other bank's line, 51 that over played. Lines are the column's left 2 px."""
+    """68 frames of 4 x 160 over a column: 0 none, 1 played, 2..17 playhead (pad colour), 18..33 chop line (pad colour),
+    34..49 chop line over played, 50/51 grey (unused), 52..67 another bank's line (its pad's colour, faded, played or
+    not: the builder caps a 160 px strip at 76 frames). Lines are the column's left 2 px."""
     cw, ch = COL_W, WV[3]
     strip = blank(cw, ch * OV_FRAMES)
     d = ImageDraw.Draw(strip)
@@ -370,6 +402,8 @@ def overlay_strip():
     line(50, (150, 154, 160), 170, 1)
     wash(51, 1)
     line(51, (150, 154, 160), 200, 1)
+    for s in range(16):   # another bank's chop: its pad's colour, faded (52..67)
+        line(52 + s, mix(PADS[s], (40, 42, 46), 0.35), 150)
     save(strip, "ov_strip.png")
 
 
@@ -452,6 +486,7 @@ def pad_images():
     ring = blank(CELL_W, CELL_H)
     ImageDraw.Draw(ring).rounded_rectangle([1, 1, CELL_W - 2, CELL_H - 2], radius=9, outline=(255, 255, 255, 255), width=4)
     save(ring, "cell_on.png")
+    fx_preset_pictures()
     off = blank(CELL_W, CELL_H)
     ImageDraw.Draw(off).rectangle([0, 0, CELL_W - 1, CELL_H - 1], fill=(0, 0, 0, 2))
     save(off, "cell_off.png")
@@ -677,6 +712,9 @@ L.append("[tab FX]")
 L += pad_head("bg_fx.png")
 L += pad_grid()
 L.append('frame x=20 y=152 w=1240 h=236 title="FX (THIS PAD)"')
+for s in range(16):   # the presets' pictures (more than one lit: the pad's own and its layers), under the clear buttons
+    L.append('picture x=%d y=%d w=%d h=%d key=fp%02d files="%s"' % (FXP_X0 + s % 4 * (FXP_W + 2), FXP_Y0 + s // 4 * (FXP_H + 2), FXP_W, FXP_H, s,
+                                                                    ",".join("art/fp_%02d_%d.png" % (s, f) for f in range(3))))
 L.append('enum_h cx=560 cy=213 label="" key=p_fx_pick sw=196 sh=36 rows=4')   # 16 presets, no OFF: the switch beside them
 L.append('toggle cx=1060 cy=262 label="FX ON" key=p_fx_on bw=110 w=72 h=34')
 L.append('frame x=535 y=397 w=725 h=310 title="PAD FX"')
@@ -702,8 +740,9 @@ L.append('frame x=650 y=152 w=610 h=200 title="KEY"')
 for k, n, cx in (("key", "MOVE TO KEY", 745), ("sound_key", "SOUND KEY", 955), ("pitch", "PITCH", 1165)):
     L.append('knob cx=%d cy=220 r=24 label="%s" key=%s bw=150 ns=15 vs=16' % (cx, n, k))
 L += key_group(955, 328, 200)[1:]
-L.append('frame x=20 y=360 w=620 h=170 title="DRUMS"')
-L.append('enum_h cx=330 cy=450 label="DRUMS" key=drums sw=%d' % SW["drums"])
+L.append('frame x=20 y=360 w=620 h=170 title="DRUMS AND MIDI KEYS"')
+L.append('enum_h cx=170 cy=450 label="DRUMS" key=drums sw=%d' % SW["drums"])
+L.append('enum_h cx=480 cy=450 label="MIDI KEYS" key=keymap sw=96')   # ALL 64: a keyboard plays every bank's chops
 L.append('frame x=650 y=360 w=610 h=170 title="CHOPS"')
 L.append('button cx=710 cy=420 w=%d h=%d label="RANDOM" key=chop_rand' % (RAND_W, BTN_H))
 L.append('button cx=710 cy=482 w=%d h=%d label="CLEAR" key=clear_cues' % (BTN_W, BTN_H))
@@ -757,7 +796,8 @@ json.dump({"pictures": pics,
                       {"w": MK_W, "h": MN_H, "frames": MN_FRAMES, "file": "mn_strip.png"}],
            "drags": {"prefix": "td", "boxes": TD_BOXES},
            "vdrags": {"prefix": "bd", "open": "bt", "enter": "br_enter", "boxes": BD_BOXES},
-           "grids": [{"key": "pad_tap", "on": "cell_on.png", "off": "cell_off.png"}]},
+           "grids": [{"key": "pad_tap", "on": "cell_on.png", "off": "cell_off.png"},
+                     {"key": "p_fx_pick", "on": "fxcell_on.png", "off": "fxcell_off.png"}]},
           open(os.path.join(HERE, "geometry.json"), "w"), indent=1)
 
 # a preview of MAIN for review (build/, not shipped): the backdrop, a made-up waveform with chops, tabs and a playhead

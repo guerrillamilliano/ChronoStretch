@@ -155,7 +155,7 @@
   {
    "w": 4,
    "h": 160,
-   "frames": 52,
+   "frames": 68,
    "file": "ov_strip.png"
   },
   {
@@ -464,6 +464,11 @@
    "key": "pad_tap",
    "on": "cell_on.png",
    "off": "cell_off.png"
+  },
+  {
+   "key": "p_fx_pick",
+   "on": "fxcell_on.png",
+   "off": "fxcell_off.png"
   }
  ]
 }

@@ -68,6 +68,7 @@
 #define BR_ROWS_PER_ROWDRAG 8.0f   /* a drag on a browser row: rows per unit of drag (a drag sends ~0.047 an event; content follows the finger) */
 #define UNDO_N 10
 #define ILOG_N 1024
+#define FX_LAYERS 4       /* a pad's FX chain: its preset, then up to 3 more layered after it */
 #define TRIG_TWICE_BLOCKS 150   /* a button's second 1 within this many blocks (~0.43 s) is the same press (set_value) */
 
 static const int GR_N[6] = { 256, 512, 512, 1024, 2048, 4096 };
@@ -120,13 +121,20 @@ typedef struct {
     float fx_drive, fx_tone, fx_width, fx_res;   /* and around it: saturation, tilt, stereo width, the filters' resonance */
     int fx_keep;                      /* the preset its FX switch turns back on (fx 0: off) */
     int layer;                        /* its layer group (0 none): a hit on any pad of a group plays them all together */
+    int fx_lay[FX_LAYERS - 1];        /* presets layered after its preset, in the order added (0 none); they play while fx is on */
 } pad_t;
-static const pad_t PAD_DEFAULT = { 0, 0, 0, 0.15f, 0, 0, 0, 0, 0, 0, 0, 0, 0, 4, 0.6f, 1, 0, 0, 0.5f, 0.25f, 1, 0 };
+static const pad_t PAD_DEFAULT = { 0, 0, 0, 0.15f, 0, 0, 0, 0, 0, 0, 0, 0, 0, 4, 0.6f, 1, 0, 0, 0.5f, 0.25f, 1, 0, { 0, 0, 0 } };
 enum { FX_OFF, FX_LOFI, FX_PHONE, FX_LP, FX_HP, FX_BP, FX_VINTAGE, FX_LSHELF, FX_HSHELF, FX_NOTCH, FX_SWEEP, FX_RISER, FX_ROBOT,
        FX_RADIO, FX_VCURVE, FX_WARP, FX_TAPE };
 #define WARP_MAX (3 * 44100)   /* WARP-SPEED's longest cycle, frames (its buffer per voice and channel) */
 #define COMB_MAX 600      /* ROBOT's comb, frames (down to 74 Hz) */
 typedef struct { float b0, b1, b2, a1, a2; } bq_t;   /* a biquad's coefficients (RBJ), its state per channel in the voice */
+typedef struct {   /* one preset of a voice's FX chain: two biquads, LOFI's hold, ROBOT's and TAPE's delay line, WARP-SPEED's place */
+    int fx; bq_t fq[2]; float fz[2][2][2]; float hold[2], hold_ph;
+    float comb[2][COMB_MAX]; int comb_n, comb_w;
+    float *wb; long w_n, w_t;          /* WARP-SPEED: its buffer (chrono_t's warp), the cycle and where in it */
+    float wow_ph, flut_ph;            /* TAPE: its wow and flutter, as phases (0..1) */
+} fxu_t;
 
 /* ---- voices ---- */
 typedef struct {
@@ -151,12 +159,10 @@ typedef struct {
     float env, att_step, rel_s, vel_g, gain;
     float flt_s[2][2]; int flt_mode;  /* filter state; 0 off, 1 low-pass, 2 high-pass */
     float flt_g;
-    /* the pad's FX (fx_run): two biquads, LOFI's hold, ROBOT's comb, SWEEP/RISER's clock (frames since the hit) */
+    /* the pad's FX (fx_frame): its chain of presets (u, nu of them), SWEEP/RISER's clock (frames since the hit) */
     int fx, fx_set, fx_on, fx_rate; float fx_amt, fx_mix, fx_beat, fx_res, fx_q, fx_drive, fx_tone, fx_width, tone_k, tone_s[2];
-    bq_t fq[2]; float fz[2][2][2]; float hold[2], hold_ph; long fx_t;
-    float comb[2][COMB_MAX]; int comb_n, comb_w;
-    float *wb; long w_n, w_t;          /* WARP-SPEED: its buffer (chrono_t's warp), the cycle and where in it */
-    float wow_ph, flut_ph;            /* TAPE: its wow and flutter, as phases (0..1) */
+    int lay_set[FX_LAYERS - 1], nu; long fx_t;   /* lay_set: the pad's layers it was started with */
+    fxu_t u[FX_LAYERS];
     unsigned age;
     /* the vocoder's buffers (reset by start_pv) */
     float fifo[2][FIFO];
@@ -207,6 +213,7 @@ typedef struct {
     long trig_frames;
     float bend;
     unsigned rng, age, hit_id;
+    int fxpick_prev, fxpick_lay[FX_LAYERS - 1], fxpick_pad, fx_msg; unsigned fxpick_blk, fx_msg_blk;   /* the FX page: its last pick (the preset before it, the pad, when); what a double tap did */
     fft_t fft[NSIZES];
     /* a hop's scratch (one voice at a time) */
     float fa[2][NMAX] __attribute__((aligned(16))), fb[NMAX] __attribute__((aligned(16)));
@@ -246,7 +253,7 @@ static float snd_bpm(const chrono_t *e, const inst_t *in) {
     return b > 0 ? b + e->val[P_BPM_FINE] : 0;
 }
 /* a picture param's place in vis[]: two runs of params (wv000..sb, then the tab numbers) */
-static inline int vis_slot(int i) { return i < P_VIS2 ? i - P_VIS0 : NVIS1 + i - P_VIS2; }
+static inline int vis_slot(int i) { return i < P_VIS2 ? i - P_VIS0 : i < P_VIS3 ? NVIS1 + i - P_VIS2 : NVIS2 + i - P_VIS3; }
 static inline float clampf(float x, float a, float b) { return x < a ? a : x > b ? b : x; }
 static inline float fast_tanh(float x) { if (x > 3) return 1; if (x < -3) return -1; float x2 = x * x; return x * (27 + x2) / (27 + 9 * x2); }
 static inline float db2lin(float d) { return powf(10.0f, d / 20.0f); }
@@ -1752,6 +1759,7 @@ static void save_padmap(const chrono_t *e) {   /* the worker */
 }
 
 static int pad_for_note(const chrono_t *e, int note) {
+    if (opt(e, P_KEYMAP) == 1) return note >= 36 && note < 36 + NPADS ? note - 36 : -1;   /* MIDI KEYS ALL 64: a keyboard over all banks */
     int m = note >= 0 && note < 128 ? e->padmap[note] : -1;
     if (m < 0) return -1;
     int bank = opt(e, P_BANK), pair = bank >= 2 ? 32 : 0;   /* C and D: A and B 32 chops on */
@@ -1919,14 +1927,14 @@ static const float FX_BEATS[7] = { 0.25f, 0.5f, 1, 2, 4, 8, 16 };
 
 /* SWEEP (a resonant low-pass up and down, a triangle a cycle) and RISER (a resonant high-pass up over its time from the hit):
  * their filter where they are now, every 32 frames */
-static void fx_tick(voice_t *v) {
+static void fx_tick(voice_t *v, fxu_t *u) {
     float t = v->fx_t / v->fx_beat, a = v->fx_amt;
-    if (v->fx == FX_SWEEP) {
+    if (u->fx == FX_SWEEP) {
         float ph = t - ffloor(t), tri = 1 - fabsf(2 * ph - 1), lo = 12000.0f * powf(80.0f / 12000.0f, 0.3f + 0.7f * a);
-        bq_set(&v->fq[0], BQ_LP, lo * powf(12000.0f / lo, tri), 3.5f * v->fx_q, 0);
+        bq_set(&u->fq[0], BQ_LP, lo * powf(12000.0f / lo, tri), 3.5f * v->fx_q, 0);
     } else {
-        float u = fminf(1, t), top = 1500 + 8500 * a;
-        bq_set(&v->fq[0], BQ_HP, 30 * powf(top / 30, u), 2.2f * v->fx_q, 0);
+        float w = fminf(1, t), top = 1500 + 8500 * a;
+        bq_set(&u->fq[0], BQ_HP, 30 * powf(top / 30, w), 2.2f * v->fx_q, 0);
     }
 }
 
@@ -1935,122 +1943,144 @@ static void fx_tick(voice_t *v) {
  * fresh: the voice starts (else the pad's FX changed while it plays, and the sweeps and WARP-SPEED keep their place) */
 static void fx_start(chrono_t *e, voice_t *v, const pad_t *pd, int fresh) {
     float a = pd->fx_amt, q = 0.5f + 2 * pd->fx_res, tempo = e->bpm_host > 0 ? e->bpm_host : snd_bpm(e, e->cur) > 0 ? snd_bpm(e, e->cur) : 120;
-    v->fx = v->fx_set = pd->fx; v->fx_amt = a; v->fx_mix = pd->fx_mix; v->fx_rate = pd->fx_rate; v->fx_res = pd->fx_res; v->fx_q = q;
+    v->fx = v->fx_set = pd->fx; v->fx_amt = a;
+    for (int k = 0; k < FX_LAYERS - 1; k++) v->lay_set[k] = pd->fx_lay[k];
+    v->fx_mix = pd->fx_mix; v->fx_rate = pd->fx_rate; v->fx_res = pd->fx_res; v->fx_q = q;
     v->fx_drive = pd->fx_drive; v->fx_tone = pd->fx_tone; v->fx_width = pd->fx_width;
-    v->fx_on = pd->fx || pd->fx_drive > 0.001f || fabsf(pd->fx_tone) > 0.001f || fabsf(pd->fx_width - 0.5f) > 0.001f;
+    int chain[FX_LAYERS], n = 0;   /* the preset, then its layers (none while the pad's FX are off) */
+    if (pd->fx) {
+        chain[n++] = pd->fx;
+        for (int k = 0; k < FX_LAYERS - 1; k++) if (pd->fx_lay[k] > 0 && pd->fx_lay[k] != pd->fx) chain[n++] = pd->fx_lay[k];
+    }
+    v->nu = n;
+    v->fx_on = n || pd->fx_drive > 0.001f || fabsf(pd->fx_tone) > 0.001f || fabsf(pd->fx_width - 0.5f) > 0.001f;
     v->tone_k = 1 - expf(-TWO_PI * 800 / SR);
     float beat = FX_BEATS[pd->fx_rate < 0 || pd->fx_rate > 6 ? 4 : pd->fx_rate] * 60.0f * SR / tempo;
-    if (v->fx == FX_SWEEP || v->fx == FX_RISER) {
+    int swept = 0;
+    for (int k = 0; k < n; k++) swept |= chain[k] == FX_SWEEP || chain[k] == FX_RISER;
+    if (swept) {
         float out = (v->r1 - v->r0) / fmaxf(0.01f, sync_rate(e, e->cur) * speed_ratio(pd->speed));
         if (beat > out) beat = out;
     }
     v->fx_beat = beat < 64 ? 64 : beat;
     if (fresh) v->fx_t = 0;
-    bq_set(&v->fq[0], BQ_THRU, 1000, 0.7f, 0); bq_set(&v->fq[1], BQ_THRU, 1000, 0.7f, 0);
-    switch (v->fx) {
-    case FX_LOFI: bq_set(&v->fq[0], BQ_LP, 2500 + 9000 * (1 - a), 0.7f * q, 0); break;
-    case FX_PHONE: bq_set(&v->fq[0], BQ_HP, 300 + 300 * a, 0.8f * q, 0); bq_set(&v->fq[1], BQ_LP, 3400 - 1000 * a, 0.8f * q, 0); break;
-    case FX_LP: bq_set(&v->fq[0], BQ_LP, 20000.0f * powf(150.0f / 20000.0f, a), 1.0f * q, 0); break;
-    case FX_HP: bq_set(&v->fq[0], BQ_HP, 20.0f * powf(300.0f, a), 0.9f * q, 0); break;
-    case FX_BP: bq_set(&v->fq[0], BQ_BP, 200.0f * powf(25.0f, a), 2.0f * q, 0); break;
-    case FX_VINTAGE: bq_set(&v->fq[0], BQ_HP, 70, 0.7f, 0); bq_set(&v->fq[1], BQ_LP, 7000 - 3500 * a, 0.7f * q, 0); break;
-    case FX_LSHELF: bq_set(&v->fq[0], BQ_LSHELF, 180, 0.707f, 15 * a); break;   /* a boost, up to +15 dB */
-    case FX_HSHELF: bq_set(&v->fq[0], BQ_HSHELF, 4000, 0.707f, 15 * a); break;
-    case FX_NOTCH: {   /* two wide notches an octave apart: a hollow, phased gap */
-        float f = 150.0f * powf(30.0f, a);
-        bq_set(&v->fq[0], BQ_NOTCH, f, 0.6f * q, 0); bq_set(&v->fq[1], BQ_NOTCH, 2 * f, 0.6f * q, 0);
-        break;
-    }
-    case FX_SWEEP: case FX_RISER: fx_tick(v); break;
-    case FX_ROBOT: v->comb_n = (int)(SR / (75 + 225 * a)); if (v->comb_n > COMB_MAX) v->comb_n = COMB_MAX; if (v->comb_w >= v->comb_n) v->comb_w = 0; break;
-    case FX_RADIO: bq_set(&v->fq[0], BQ_HP, 600 + 300 * a, 1.2f * q, 0); bq_set(&v->fq[1], BQ_LP, 2600 - 900 * a, 1.2f * q, 0); break;
-    case FX_VCURVE: bq_set(&v->fq[0], BQ_LSHELF, 120, 0.707f, 15 * a); bq_set(&v->fq[1], BQ_HSHELF, 6000, 0.707f, 15 * a); break;
-    case FX_TAPE:   /* a head bump low down, the top rolling off as the tape wears (Amount) */
-        bq_set(&v->fq[0], BQ_LSHELF, 90, 0.707f, 2 + 3 * a); bq_set(&v->fq[1], BQ_LP, 16000 - 10000 * a, 0.7f * q, 0);
-        v->comb_n = COMB_MAX; if (v->comb_w >= COMB_MAX) v->comb_w = 0;
-        break;
-    case FX_WARP:
-        if (!e->warp) { v->fx = FX_OFF; break; }
-        v->wb = e->warp + (size_t)(v - e->v) * 2 * WARP_MAX;
-        v->w_n = v->fx_beat > WARP_MAX ? WARP_MAX : (long)v->fx_beat;
-        if (fresh || v->w_t >= v->w_n) v->w_t = 0;
-        break;
+    int warped = 0;
+    for (int k = 0; k < n; k++) {
+        fxu_t *u = &v->u[k];
+        if (u->fx != chain[k]) { memset(u, 0, sizeof *u); }   /* a preset new in this place starts from silence */
+        u->fx = chain[k];
+        bq_set(&u->fq[0], BQ_THRU, 1000, 0.7f, 0); bq_set(&u->fq[1], BQ_THRU, 1000, 0.7f, 0);
+        switch (u->fx) {
+        case FX_LOFI: bq_set(&u->fq[0], BQ_LP, 2500 + 9000 * (1 - a), 0.7f * q, 0); break;
+        case FX_PHONE: bq_set(&u->fq[0], BQ_HP, 300 + 300 * a, 0.8f * q, 0); bq_set(&u->fq[1], BQ_LP, 3400 - 1000 * a, 0.8f * q, 0); break;
+        case FX_LP: bq_set(&u->fq[0], BQ_LP, 20000.0f * powf(150.0f / 20000.0f, a), 1.0f * q, 0); break;
+        case FX_HP: bq_set(&u->fq[0], BQ_HP, 20.0f * powf(300.0f, a), 0.9f * q, 0); break;
+        case FX_BP: bq_set(&u->fq[0], BQ_BP, 200.0f * powf(25.0f, a), 2.0f * q, 0); break;
+        case FX_VINTAGE: bq_set(&u->fq[0], BQ_HP, 70, 0.7f, 0); bq_set(&u->fq[1], BQ_LP, 7000 - 3500 * a, 0.7f * q, 0); break;
+        case FX_LSHELF: bq_set(&u->fq[0], BQ_LSHELF, 180, 0.707f, 15 * a); break;   /* a boost, up to +15 dB */
+        case FX_HSHELF: bq_set(&u->fq[0], BQ_HSHELF, 4000, 0.707f, 15 * a); break;
+        case FX_NOTCH: {   /* two wide notches an octave apart: a hollow, phased gap */
+            float f = 150.0f * powf(30.0f, a);
+            bq_set(&u->fq[0], BQ_NOTCH, f, 0.6f * q, 0); bq_set(&u->fq[1], BQ_NOTCH, 2 * f, 0.6f * q, 0);
+            break;
+        }
+        case FX_SWEEP: case FX_RISER: fx_tick(v, u); break;
+        case FX_ROBOT: u->comb_n = (int)(SR / (75 + 225 * a)); if (u->comb_n > COMB_MAX) u->comb_n = COMB_MAX; if (u->comb_w >= u->comb_n) u->comb_w = 0; break;
+        case FX_RADIO: bq_set(&u->fq[0], BQ_HP, 600 + 300 * a, 1.2f * q, 0); bq_set(&u->fq[1], BQ_LP, 2600 - 900 * a, 1.2f * q, 0); break;
+        case FX_VCURVE: bq_set(&u->fq[0], BQ_LSHELF, 120, 0.707f, 15 * a); bq_set(&u->fq[1], BQ_HSHELF, 6000, 0.707f, 15 * a); break;
+        case FX_TAPE:   /* a head bump low down, the top rolling off as the tape wears (Amount) */
+            bq_set(&u->fq[0], BQ_LSHELF, 90, 0.707f, 2 + 3 * a); bq_set(&u->fq[1], BQ_LP, 16000 - 10000 * a, 0.7f * q, 0);
+            u->comb_n = COMB_MAX; if (u->comb_w >= COMB_MAX) u->comb_w = 0;
+            break;
+        case FX_WARP:
+            if (!e->warp || warped++) { u->fx = FX_OFF; break; }   /* one WARP-SPEED buffer a voice */
+            u->wb = e->warp + (size_t)(v - e->v) * 2 * WARP_MAX;
+            u->w_n = v->fx_beat > WARP_MAX ? WARP_MAX : (long)v->fx_beat;
+            if (fresh || u->w_t >= u->w_n) u->w_t = 0;
+            break;
+        }
     }
 }
 
 /* the pad's FX changed while its voice plays: take them up at once */
 static void fx_live(chrono_t *e, voice_t *v, const pad_t *pd) {
-    if (pd->fx != v->fx_set || pd->fx_amt != v->fx_amt || pd->fx_mix != v->fx_mix || pd->fx_rate != v->fx_rate || pd->fx_res != v->fx_res
+    if (pd->fx != v->fx_set || memcmp(pd->fx_lay, v->lay_set, sizeof v->lay_set) || pd->fx_amt != v->fx_amt || pd->fx_mix != v->fx_mix || pd->fx_rate != v->fx_rate || pd->fx_res != v->fx_res
         || pd->fx_drive != v->fx_drive || pd->fx_tone != v->fx_tone || pd->fx_width != v->fx_width) fx_start(e, v, pd, 0);
 }
 
-/* one frame through the voice's FX: DRIVE, the preset, TONE, WIDTH, then MIX against the dry frame */
+/* one preset of the chain on a frame (x: both channels, in and out) */
+static inline void fx_unit(voice_t *v, fxu_t *u, float *x) {
+    float a = v->fx_amt;
+    if (u->fx == FX_LOFI) {   /* held at a lower rate (22 .. 6 kHz) and fewer bits (12 .. 6), then dulled */
+        u->hold_ph += (22050 - 16000 * a) / SR;
+        if (u->hold_ph >= 1) {
+            u->hold_ph -= 1;
+            float lv = powf(2, 12 - 6 * a);
+            for (int c = 0; c < 2; c++) u->hold[c] = lrintf(x[c] * lv) / lv;
+        }
+    }
+    if (u->fx == FX_WARP) {   /* WARP-SPEED: each cycle (from the hit) plays its own first half at half speed, an octave down, as a
+                               * tape slowed to half and caught up again at the next: half time, in time. Amount: the seams' fade */
+        long t = u->w_t, k = t >> 1;
+        float fade = (0.002f + 0.03f * a) * SR, g = fminf(1, fminf((t + 1) / fade, (u->w_n - t) / fade)), fr = (t & 1) * 0.5f;
+        for (int c = 0; c < 2; c++) {
+            float *b = u->wb + (size_t)c * WARP_MAX;
+            b[t] = x[c];
+            x[c] = (b[k] + (b[k + 1 <= t ? k + 1 : k] - b[k]) * fr) * g;
+        }
+        if (++u->w_t >= u->w_n) u->w_t = 0;
+    } else if (u->fx == FX_TAPE) {   /* TAPE: wow (0.6 Hz) and flutter (6.5 Hz) as a delay that sways, then saturation, the
+                                      * head bump and the rolled-off top. Amount: how worn (deeper wow, more drive, less top) */
+        float wow = sin_half(PI * (fabsf(2 * u->wow_ph - 1) - 0.5f)), flut = sin_half(PI * (fabsf(2 * u->flut_ph - 1) - 0.5f));
+        float dl = 60 + (6 + 40 * a) * wow + (0.3f + 1.2f * a) * flut;   /* about 1 ms: the chop stays on time */
+        if ((u->wow_ph += 0.6f / SR) >= 1) u->wow_ph -= 1;
+        if ((u->flut_ph += 6.5f / SR) >= 1) u->flut_ph -= 1;
+        float rp = u->comb_w - dl; if (rp < 0) rp += COMB_MAX;
+        int k0 = (int)rp, k1 = k0 + 1 >= COMB_MAX ? 0 : k0 + 1; float fr = rp - k0;
+        for (int c = 0; c < 2; c++) {
+            float *b = u->comb[c];
+            b[u->comb_w] = x[c];
+            float y = b[k0] + (b[k1] - b[k0]) * fr, g = 1 + 2.5f * a;
+            y = fast_tanh(g * y) / fast_tanh(g);
+            x[c] = bq_run(&u->fq[1], u->fz[1][c], bq_run(&u->fq[0], u->fz[0][c], y));
+        }
+        if (++u->comb_w >= COMB_MAX) u->comb_w = 0;
+    } else if (u->fx) {
+        if ((u->fx == FX_SWEEP || u->fx == FX_RISER) && !(v->fx_t & 31)) fx_tick(v, u);
+        for (int c = 0; c < 2; c++) {
+            float d = x[c], y = d;
+            switch (v->fx) {
+            case FX_LOFI: y = bq_run(&u->fq[0], u->fz[0][c], u->hold[c]); break;
+            case FX_PHONE: y = fast_tanh(4.0f * bq_run(&u->fq[1], u->fz[1][c], bq_run(&u->fq[0], u->fz[0][c], d))) * 0.6f; break;
+            case FX_VINTAGE: y = bq_run(&u->fq[1], u->fz[1][c], bq_run(&u->fq[0], u->fz[0][c], fast_tanh(d * (1 + 3 * a)) / (1 + a))); break;
+            case FX_RADIO: y = fast_tanh(2.2f * bq_run(&u->fq[1], u->fz[1][c], bq_run(&u->fq[0], u->fz[0][c], d))) * 0.7f; break;
+            case FX_VCURVE: y = bq_run(&u->fq[1], u->fz[1][c], bq_run(&u->fq[0], u->fz[0][c], d)) * 0.6f; break;
+            case FX_ROBOT: {   /* a short feedback comb on a pitch: metallic, voice-like */
+                float *b = u->comb[c];
+                y = d + 0.82f * b[u->comb_w];
+                b[u->comb_w] = y;
+                y *= 0.35f;
+                break;
+            }
+            case FX_BP: y = 3.0f * bq_run(&u->fq[0], u->fz[0][c], d); break;   /* a narrow band: made up to about the level it came in at */
+            case FX_NOTCH: y = bq_run(&u->fq[1], u->fz[1][c], bq_run(&u->fq[0], u->fz[0][c], d)); break;
+            default: y = bq_run(&u->fq[0], u->fz[0][c], d); break;
+            }
+            x[c] = y;
+        }
+        if (u->fx == FX_ROBOT && ++u->comb_w >= u->comb_n) u->comb_w = 0;
+    }
+}
+
+/* one frame through the voice's FX: DRIVE, its chain of presets in order, TONE, WIDTH, then MIX against the dry frame */
 static inline void fx_frame(voice_t *v, float *l, float *r) {
-    float dry[2] = { *l, *r }, x[2] = { *l, *r }, a = v->fx_amt;
+    float dry[2] = { *l, *r }, x[2] = { *l, *r };
     if (v->fx_drive > 0.001f) {   /* a soft clip, about level for the same loudness */
         float g = 1 + 8 * v->fx_drive, n = 1.0f / sqrtf(g);
         for (int c = 0; c < 2; c++) x[c] = fast_tanh(g * x[c]) * n;
     }
-    if (v->fx == FX_LOFI) {   /* held at a lower rate (22 .. 6 kHz) and fewer bits (12 .. 6), then dulled */
-        v->hold_ph += (22050 - 16000 * a) / SR;
-        if (v->hold_ph >= 1) {
-            v->hold_ph -= 1;
-            float lv = powf(2, 12 - 6 * a);
-            for (int c = 0; c < 2; c++) v->hold[c] = lrintf(x[c] * lv) / lv;
-        }
-    }
-    if (v->fx == FX_WARP) {   /* WARP-SPEED: each cycle (from the hit) plays its own first half at half speed, an octave down, as a
-                               * tape slowed to half and caught up again at the next: half time, in time. Amount: the seams' fade */
-        long t = v->w_t, k = t >> 1;
-        float fade = (0.002f + 0.03f * a) * SR, g = fminf(1, fminf((t + 1) / fade, (v->w_n - t) / fade)), fr = (t & 1) * 0.5f;
-        for (int c = 0; c < 2; c++) {
-            float *b = v->wb + (size_t)c * WARP_MAX;
-            b[t] = x[c];
-            x[c] = (b[k] + (b[k + 1 <= t ? k + 1 : k] - b[k]) * fr) * g;
-        }
-        if (++v->w_t >= v->w_n) v->w_t = 0;
-    } else if (v->fx == FX_TAPE) {   /* TAPE: wow (0.6 Hz) and flutter (6.5 Hz) as a delay that sways, then saturation, the
-                                      * head bump and the rolled-off top. Amount: how worn (deeper wow, more drive, less top) */
-        float wow = sin_half(PI * (fabsf(2 * v->wow_ph - 1) - 0.5f)), flut = sin_half(PI * (fabsf(2 * v->flut_ph - 1) - 0.5f));
-        float dl = 60 + (6 + 40 * a) * wow + (0.3f + 1.2f * a) * flut;   /* about 1 ms: the chop stays on time */
-        if ((v->wow_ph += 0.6f / SR) >= 1) v->wow_ph -= 1;
-        if ((v->flut_ph += 6.5f / SR) >= 1) v->flut_ph -= 1;
-        float rp = v->comb_w - dl; if (rp < 0) rp += COMB_MAX;
-        int k0 = (int)rp, k1 = k0 + 1 >= COMB_MAX ? 0 : k0 + 1; float fr = rp - k0;
-        for (int c = 0; c < 2; c++) {
-            float *b = v->comb[c];
-            b[v->comb_w] = x[c];
-            float y = b[k0] + (b[k1] - b[k0]) * fr, g = 1 + 2.5f * a;
-            y = fast_tanh(g * y) / fast_tanh(g);
-            x[c] = bq_run(&v->fq[1], v->fz[1][c], bq_run(&v->fq[0], v->fz[0][c], y));
-        }
-        if (++v->comb_w >= COMB_MAX) v->comb_w = 0;
-    } else if (v->fx) {
-        if ((v->fx == FX_SWEEP || v->fx == FX_RISER) && !(v->fx_t & 31)) fx_tick(v);
-        v->fx_t++;
-        for (int c = 0; c < 2; c++) {
-            float d = x[c], y = d;
-            switch (v->fx) {
-            case FX_LOFI: y = bq_run(&v->fq[0], v->fz[0][c], v->hold[c]); break;
-            case FX_PHONE: y = fast_tanh(4.0f * bq_run(&v->fq[1], v->fz[1][c], bq_run(&v->fq[0], v->fz[0][c], d))) * 0.6f; break;
-            case FX_VINTAGE: y = bq_run(&v->fq[1], v->fz[1][c], bq_run(&v->fq[0], v->fz[0][c], fast_tanh(d * (1 + 3 * a)) / (1 + a))); break;
-            case FX_RADIO: y = fast_tanh(2.2f * bq_run(&v->fq[1], v->fz[1][c], bq_run(&v->fq[0], v->fz[0][c], d))) * 0.7f; break;
-            case FX_VCURVE: y = bq_run(&v->fq[1], v->fz[1][c], bq_run(&v->fq[0], v->fz[0][c], d)) * 0.6f; break;
-            case FX_ROBOT: {   /* a short feedback comb on a pitch: metallic, voice-like */
-                float *b = v->comb[c];
-                y = d + 0.82f * b[v->comb_w];
-                b[v->comb_w] = y;
-                y *= 0.35f;
-                break;
-            }
-            case FX_BP: y = 3.0f * bq_run(&v->fq[0], v->fz[0][c], d); break;   /* a narrow band: made up to about the level it came in at */
-            case FX_NOTCH: y = bq_run(&v->fq[1], v->fz[1][c], bq_run(&v->fq[0], v->fz[0][c], d)); break;
-            default: y = bq_run(&v->fq[0], v->fz[0][c], d); break;
-            }
-            x[c] = y;
-        }
-        if (v->fx == FX_ROBOT && ++v->comb_w >= v->comb_n) v->comb_w = 0;
-    }
+    for (int k = 0; k < v->nu; k++) fx_unit(v, &v->u[k], x);
+    if (v->nu) v->fx_t++;
     if (fabsf(v->fx_tone) > 0.001f)   /* a tilt about 800 Hz: the lows down and the highs up (brighter), or the other way */
         for (int c = 0; c < 2; c++) {
             v->tone_s[c] += v->tone_k * (x[c] - v->tone_s[c]);
@@ -2539,6 +2569,7 @@ static void random_chops(chrono_t *e, const inst_t *in) {
 /* UNDO: what an edit can be taken back from (chops, pad settings, the sound's settings; not the view, the bank or the browser) */
 static int undoable(int i, float x) {
     if (i >= P_TD00 && i < P_TD00 + NMARK) return 1;
+    if (i >= P_FL00 && i < P_FL00 + 16) return 1;
     if (i == P_FIND || i == P_CHOP_RAND || i == P_CLEAR_CUES || i == P_CHOP_ADD || i == P_CHOP_DEL || i == P_P_RESET || i == P_FX_COPY || i == P_FX_CLEAR
         || i == P_KEY_UP || i == P_KEY_DOWN) return x > 0.5f;
     if (i == P_ZOOM || i == P_SCROLL || i == P_BANK || i == P_SEL_PAD || i == P_PAD_TAP || i == P_DRAG_SPEED || i == P_BR_CURSOR) return 0;
@@ -2584,6 +2615,34 @@ static int browse_button_wheel(chrono_t *e, int i, float x) {
     return 1;
 }
 
+/* a double tap on FX preset f: its two taps picked it, so the pad's preset goes back to what it was; then f is layered after
+ * it, or taken off if it was layered. A pad with no FX takes f as its preset */
+static void fx_layer_tap(chrono_t *e, int f) {
+    int sp = (int)lrintf(e->val[P_SEL_PAD]);
+    pad_t *pd = &e->pad[sp];
+    if (e->fxpick_pad == sp && e->blk - e->fxpick_blk < 520) {   /* its taps picked f (~1.5 s: a slow double tap took 0.9 s): undone */
+        pd->fx = e->fxpick_prev; memcpy(pd->fx_lay, e->fxpick_lay, sizeof pd->fx_lay);
+        e->fxpick_blk = e->blk - 1000;   /* used */
+    }
+    int was = pd->fx;
+    if (!was) { pd->fx = pd->fx_keep = f; select_pad(e, sp); e->fx_msg = 16; e->fx_msg_blk = e->blk; return; }
+    pd->fx_keep = was;
+    int k, at = -1;
+    for (k = 0; k < FX_LAYERS - 1; k++) if (pd->fx_lay[k] == f) break;
+    if (k < FX_LAYERS - 1) {   /* layered: off, the rest close up */
+        for (; k < FX_LAYERS - 2; k++) pd->fx_lay[k] = pd->fx_lay[k + 1];
+        pd->fx_lay[FX_LAYERS - 2] = 0;
+        e->fx_msg = 17;
+    } else if (f == was) e->fx_msg = 18;   /* the pad's own preset */
+    else {
+        for (k = 0; k < FX_LAYERS - 1 && at < 0; k++) if (!pd->fx_lay[k]) at = k;
+        if (at < 0) e->fx_msg = 19;   /* full */
+        else { pd->fx_lay[at] = f; e->fx_msg = 16; }
+    }
+    e->fx_msg_blk = e->blk;
+    select_pad(e, sp);
+}
+
 /* STOP: everything lets go at once (fading out), the preview too; a MANUAL run ends */
 static void stop_all(chrono_t *e) {
     if (e->rec) stop_rec(e);
@@ -2597,6 +2656,12 @@ static void set_value(chrono_t *e, int i, float x) {
     /* a double tap on a row and the data wheel's push reach the engine as a switch MPC flips (1, then 0 the next time: input
      * log 2026-10-28); the 0 was taken for a release, so every other one did nothing. Either way is a press */
     if (((i >= P_BT01 && i < P_BT01 + NROWS) || i == P_BR_ENTER) && x < 0.005f && e->sp_x[i] > 0.5f && e->blk - e->sp_blk[i] > 40) x = 1;
+    if (i >= P_FL00 && i < P_FL00 + 16) {   /* a double tap on an FX preset (a switch MPC flips: 1, or 0 the next time) */
+        int press = x > 0.5f || (e->sp_x[i] > 0.5f && e->blk - e->sp_blk[i] > 40);
+        e->sp_x[i] = x > 0.5f ? 1 : 0; e->sp_blk[i] = e->blk;
+        if (press) fx_layer_tap(e, i - P_FL00 + 1);
+        e->val[i] = 0; return;
+    }
     if (i >= P_TT00 && i < P_TT00 + NMARK) {   /* a double tap on a tab slot (a switch MPC flips: 1, or 0 the next time) */
         int press = x > 0.5f || (e->sp_x[i] > 0.5f && e->blk - e->sp_blk[i] > 40);
         e->sp_x[i] = x > 0.5f ? 1 : 0; e->sp_blk[i] = e->blk;
@@ -2707,7 +2772,17 @@ static void set_value(chrono_t *e, int i, float x) {
         if (x > 0.5f) { pd->key = 0; pd->speed = 0; pd->reverse = 0; select_pad(e, sp); }
         e->val[i] = 0; return;
     case P_P_FX: pd->fx = (int)x; if (pd->fx) pd->fx_keep = pd->fx; select_pad(e, sp); return;
-    case P_P_FX_PICK: pd->fx = pd->fx_keep = (int)x + 1; select_pad(e, sp); return;   /* picking a preset turns the FX on */
+    case P_P_FX_PICK: {   /* picking a preset makes it the pad's own and turns the FX on. The chain it changed is kept a moment,
+                           * for a double tap (whose first tap is a pick) to put back. A layered preset picked swaps places
+                           * with the pad's own, so no preset drops out of the chain (input log 2026-10-30) */
+        int f = (int)x + 1;
+        if (f != pd->fx || e->fxpick_pad != sp) {   /* a pick that changes it (a double tap's second does not) */
+            e->fxpick_prev = pd->fx; memcpy(e->fxpick_lay, pd->fx_lay, sizeof e->fxpick_lay);
+        }
+        e->fxpick_blk = e->blk; e->fxpick_pad = sp;
+        for (int k = 0; k < FX_LAYERS - 1; k++) if (pd->fx_lay[k] == f) pd->fx_lay[k] = pd->fx;
+        pd->fx = pd->fx_keep = f; select_pad(e, sp); return;
+    }
     case P_P_FX_ON: pd->fx = x > 0.5f ? (pd->fx_keep > 0 ? pd->fx_keep : 1) : 0; select_pad(e, sp); return;
     case P_P_FX_AMT: pd->fx_amt = x; return;
     case P_P_FX_RATE: pd->fx_rate = (int)x; return;
@@ -2723,6 +2798,7 @@ static void set_value(chrono_t *e, int i, float x) {
                 const pad_t *f = i == P_FX_COPY ? pd : &PAD_DEFAULT;
                 q->fx = f->fx; q->fx_keep = f->fx_keep; q->fx_amt = f->fx_amt; q->fx_rate = f->fx_rate; q->fx_mix = f->fx_mix;
                 q->fx_drive = f->fx_drive; q->fx_tone = f->fx_tone; q->fx_width = f->fx_width; q->fx_res = f->fx_res;
+                memcpy(q->fx_lay, f->fx_lay, sizeof q->fx_lay);
             }
             select_pad(e, sp);
             e->chop_msg = i == P_FX_COPY ? 12 : 13; e->chop_msg_frames = (long)(3 * SR); e->unmapped_frames = 0;
@@ -2854,17 +2930,18 @@ static void apply_state(chrono_t *e, const char *val) {
             int p = atoi(t + 1);
             if (p < 0 || p >= NPADS) continue;
             pad_t *pd = &e->pad[p];
-            int x[8] = {0}, rate = 4, layer = 0;
+            int x[8] = {0}, rate = 4, layer = 0, lay[3] = { 0, 0, 0 };
             float amt = 0.6f, mix = 1, f4[4] = { 0, 0, 0.5f, 0.25f };
             *pd = PAD_DEFAULT;
-            int n = sscanf(v, "%f,%f,%f,%f,%f,%d,%d,%d,%d,%d,%d,%d,%d,%f,%d,%f,%f,%f,%f,%f,%d", &pd->level, &pd->filter, &pd->attack, &pd->release, &pd->speed,
-                           &x[0], &x[1], &x[2], &x[3], &x[4], &x[5], &x[6], &x[7], &amt, &rate, &mix, &f4[0], &f4[1], &f4[2], &f4[3], &layer);
+            int n = sscanf(v, "%f,%f,%f,%f,%f,%d,%d,%d,%d,%d,%d,%d,%d,%f,%d,%f,%f,%f,%f,%f,%d,%d,%d,%d", &pd->level, &pd->filter, &pd->attack, &pd->release, &pd->speed,
+                           &x[0], &x[1], &x[2], &x[3], &x[4], &x[5], &x[6], &x[7], &amt, &rate, &mix, &f4[0], &f4[1], &f4[2], &f4[3], &layer, &lay[0], &lay[1], &lay[2]);
             pd->reverse = x[0]; pd->key = x[1]; pd->choke = x[3];
             if (n == 13) { pd->mode = x[2] == 1 ? 3 : x[2] == 2 ? 4 : 0; pd->len = x[5]; pd->drums = x[6]; pd->vocals = x[7]; }   /* 0.2 (with a colour) */
             else { pd->mode = x[2]; pd->len = x[4]; pd->drums = x[5]; pd->vocals = x[6]; }
             if (n >= 16) { pd->fx = x[7]; pd->fx_amt = amt; pd->fx_rate = rate; pd->fx_mix = mix; if (pd->fx) pd->fx_keep = pd->fx; }   /* 0.9: its FX */
             if (n >= 20) { pd->fx_drive = f4[0]; pd->fx_tone = f4[1]; pd->fx_width = f4[2]; pd->fx_res = f4[3]; }   /* 1.0.2 */
             if (n >= 21) pd->layer = layer < 0 || layer > 4 ? 0 : layer;   /* 1.0.15: its layer group */
+            for (int k = 0; k < 3 && n >= 22 + k; k++) pd->fx_lay[k] = lay[k] < 0 || lay[k] > FX_TAPE ? 0 : lay[k];   /* 1.0.22: its FX layers */
             continue;
         }
         int i = key_index(t);
@@ -3014,6 +3091,14 @@ static void compute_visuals(chrono_t *e, unsigned short *nv) {
         for (int i = 0; i < NV; i++) on |= e->v[i].active && e->v[i].pad == p && !e->v[i].released && !e->v[i].done_fade;
         nv[P_LP00 + s - P_VIS0] = (unsigned char)(3 * bank + (e->cue[p] < 0 ? 0 : on ? 2 : 1));   /* its own number per bank */
     }
+    {   /* the FX page's presets: the selected pad's own lit, the ones layered after it lit softer (none while its FX are off) */
+        const pad_t *d = &e->pad[sp];
+        for (int s = 0; s < 16; s++) {
+            int f = s + 1, lay = 0;
+            for (int k = 0; k < FX_LAYERS - 1; k++) lay |= d->fx_lay[k] == f;
+            nv[NVIS2 + s] = (unsigned short)(!d->fx ? 0 : d->fx == f ? 1 : lay ? 2 : 0);
+        }
+    }
     if (!in || !in->nwave[WLOD - 1]) return;
     long v0, vl;
     view_of(e, in, &v0, &vl);
@@ -3031,8 +3116,8 @@ static void compute_visuals(chrono_t *e, unsigned short *nv) {
         long fa = (long)fmax(a, (double)v0), fb = (long)fmin(b, (double)(v0 + vl - 1));
         for (int c = fa <= fb ? COL(fa) : 1, c1 = fa <= fb ? COL(fb) : 0; c <= c1; c++) pl[c] = ov[c] = 1;
     }
-    for (int p = 0; p < NPADS; p++)   /* the other bank's chops */
-        if (p / 16 != bank && IN_VIEW(e->cue[p])) { int c = COL(e->cue[p]); ov[c] = pl[c] ? 51 : 50; }
+    for (int p = 0; p < NPADS; p++)   /* the other banks' chops: faded, in their pads' colours */
+        if (p / 16 != bank && IN_VIEW(e->cue[p])) { int c = COL(e->cue[p]); ov[c] = (unsigned short)(52 + p % 16); }
     for (int s = 15; s >= 0; s--) {   /* the bank's (two in one column: the lower pad shows) */
         long q = e->cue[bank * 16 + s];
         if (IN_VIEW(q)) { int c = COL(q); ov[c] = (unsigned char)((pl[c] ? 34 : 18) + s); }
@@ -3073,8 +3158,8 @@ static int get_param(void *inst, const char *key, char *buf, int len) {
         for (int p = 0; p < NPADS && n < len; p++) {
             const pad_t *d = &e->pad[p];
             if (!memcmp(d, &PAD_DEFAULT, sizeof *d)) continue;
-            n += snprintf(buf + n, (size_t)(len - n), "p%d=%g,%g,%g,%g,%g,%d,%d,%d,%d,%d,%d,%d,%d,%g,%d,%g,%g,%g,%g,%g,%d;", p, d->level, d->filter, d->attack,
-                          d->release, d->speed, d->reverse, d->key, d->mode, d->choke, d->len, d->drums, d->vocals, d->fx, d->fx_amt, d->fx_rate, d->fx_mix, d->fx_drive, d->fx_tone, d->fx_width, d->fx_res, d->layer);
+            n += snprintf(buf + n, (size_t)(len - n), "p%d=%g,%g,%g,%g,%g,%d,%d,%d,%d,%d,%d,%d,%d,%g,%d,%g,%g,%g,%g,%g,%d,%d,%d,%d;", p, d->level, d->filter, d->attack,
+                          d->release, d->speed, d->reverse, d->key, d->mode, d->choke, d->len, d->drums, d->vocals, d->fx, d->fx_amt, d->fx_rate, d->fx_mix, d->fx_drive, d->fx_tone, d->fx_width, d->fx_res, d->layer, d->fx_lay[0], d->fx_lay[1], d->fx_lay[2]);
         }
         pthread_mutex_lock(&e->mu);
         if (n < len) n += snprintf(buf + n, (size_t)(len - n), "cname=%s;sname=%s;", e->cue_name, e->sname);
@@ -3191,7 +3276,12 @@ static int get_param(void *inst, const char *key, char *buf, int len) {
         const pad_t *d = &e->pad[p];
         char pn[8], am[24]; pad_name(p, pn, sizeof pn); display(e, P_P_FX_AMT, am, sizeof am);
         if (!d->fx) return snprintf(buf, len, "PAD %s:  NO FX   (PICK ONE, THEN HIT THE PAD)", pn);
-        return snprintf(buf, len, "PAD %s:  %s   AMOUNT %s   MIX %.0f%%%s%s", pn, OPT_P_FX[d->fx], am, d->fx_mix * 100,
+        char ch[96]; int m = snprintf(ch, sizeof ch, "%s", OPT_P_FX[d->fx]);
+        for (int k = 0; k < FX_LAYERS - 1; k++) if (d->fx_lay[k] > 0 && m < (int)sizeof ch) m += snprintf(ch + m, sizeof ch - (size_t)m, " + %s", OPT_P_FX[d->fx_lay[k]]);
+        if (e->fx_msg && e->blk - e->fx_msg_blk < 1000)   /* ~3 s */
+            return snprintf(buf, len, "PAD %s:  %s   %s", pn, ch, e->fx_msg == 17 ? "(LAYER TAKEN OFF)" : e->fx_msg == 18 ? "(ITS OWN PRESET: TAP ANOTHER TO CHANGE IT)"
+                            : e->fx_msg == 19 ? "(4 FX ALREADY: DOUBLE-TAP ONE TO TAKE IT OFF)" : "(DOUBLE-TAP A PRESET TO LAYER IT OR TAKE IT OFF)");
+        return snprintf(buf, len, "PAD %s:  %s   AMOUNT %s   MIX %.0f%%%s%s", pn, ch, am, d->fx_mix * 100,
                         d->fx == FX_SWEEP || d->fx == FX_RISER || d->fx == FX_WARP ? "   EVERY " : "", d->fx == FX_SWEEP || d->fx == FX_RISER || d->fx == FX_WARP ? OPT_P_FX_RATE[d->fx_rate] : "");
     }
     if (!strcmp(key, "disp_pads")) {   /* which notes play the pads (not the last one heard: a text that changes with each hit makes MPC rebuild its screen) */
