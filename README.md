@@ -24,7 +24,7 @@ the full user guide.
 - **Playing:** in time with the project (SYNC, 1/2 SPEED for double-time patterns) and in key (KEY - and + by
   semitones, tempo kept). Per pad: level, filter, attack, release, pitch, speed, reverse, length, mode (ONE SHOT,
   CONTINUE, GATE, HOLD), choke groups and layer groups (pads that play together). MIDI KEYS ALL 64 lets a keyboard
-  play every chop from C1 up, across all banks.
+  play every chop from C1 up, across all banks (the default).
 - **FX per pad:** 16 presets (LOFI, TELEPHONE, filters, shelves, NOTCH, SWEEP, RISER, ROBOT, RADIO, V CURVE,
   WARP-SPEED half-time, TAPE) with AMOUNT, SWEEP / RISE, MIX, DRIVE, TONE, WIDTH and RESONANCE. Double-tap presets to
   layer up to 4 on a pad; the page lights them all.

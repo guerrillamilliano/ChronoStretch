@@ -1868,7 +1868,9 @@ static void play_pad(chrono_t *e, const inst_t *in, int note, int vel, int p, in
     if (!lead) return;
     e->last_note = note; e->last_vel = vel; e->last_pad = p;
     e->trig_frames = (long)(0.15f * SR);
-    if (!kb && opt(e, P_FOLLOW) && p != (int)lrintf(e->val[P_SEL_PAD])) select_pad(e, p);
+    /* SELECT ON HIT; with MIDI KEYS on PADS only within the bank on screen: a hit of another bank switching BANK made the
+     * first 16 notes play that bank from then on (2026-10-30: key 17, then key 1 played chop 17) */
+    if (!kb && opt(e, P_FOLLOW) && p != (int)lrintf(e->val[P_SEL_PAD]) && (opt(e, P_KEYMAP) == 1 || p / 16 == opt(e, P_BANK))) select_pad(e, p);
 }
 
 static void note_off(chrono_t *e, int note) {

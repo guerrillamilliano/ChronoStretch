@@ -160,6 +160,8 @@ int main(int argc, char **argv) {
     chrono_t *e = create(NULL);
     wait_sound(e);
     CHECK(e->cur && !strcmp(e->cur->name, "Built-in - Break 90"), "the first sound loads (Break 90), its drums separated");
+    CHECK(opt(e, P_KEYMAP) == 1, "MIDI KEYS starts on ALL 64: every key its own chop, whatever the bank (1.0.26)");
+    setp(e, "keymap", 0);   /* the tests below are of the pads' mapping (PADS) */
     {   /* Cues 64 by default (0.8), so banks B, C and D have chops 17 on */
         int nb = 0; for (int i = 16; i < NPADS; i++) nb += e->cue[i] >= 0;
         char buf[128]; setp(e, "bank", 1); get_param(e, "disp_pad", buf, sizeof buf);
@@ -577,6 +579,9 @@ int main(int argc, char **argv) {
             int k1 = PAD_OF(36), k17 = PAD_OF(52), k64 = PAD_OF(99), b0 = opt(e, P_BANK);
             msg(e, 0xB0, 120, 0); render(e, blk, 128);
             setp(e, "keymap", 0); setp(e, "zoom", 0); setp(e, "bank", 0); setp(e, "sel_pad", 0);
+            int p17 = PAD_OF(52), p1 = PAD_OF(36), bk = opt(e, P_BANK);   /* PADS: key 17 (B1), then key 1: still A1 */
+            msg(e, 0xB0, 120, 0); render(e, blk, 128);
+            CHECK(p17 == 16 && p1 == 0 && bk == 0, "MIDI KEYS PADS: key 17 plays B1 and leaves BANK on A, so key 1 plays A1 again (%d %d, bank %d)", p17, p1, bk);
             char buf0[32]; get_param(e, "display_rev", buf0, sizeof buf0);
             long v0_, vl_; view_of(e, e->cur, &v0_, &vl_);
             int f17 = e->cue[16] >= 0 ? e->vis[P_OV000 + (int)((double)(e->cue[16] - v0_) * NCOL / vl_) - P_VIS0] : -1;

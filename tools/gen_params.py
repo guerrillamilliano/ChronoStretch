@@ -215,7 +215,7 @@ for i in range(36):   # a double tap on a tab slot: the chop whose tab is there 
 for i in range(16):   # a double tap on FX preset i+1 (the FX page): layered after the pad's preset, or taken off
     trig("fl%02d" % i, "FX Layer %02d" % i)
 # ---- 1.0.23, appended ----
-opt("keymap", "MIDI Keys", ["PADS", "ALL 64"], 0, qlink_ticks=QT)
+opt("keymap", "MIDI Keys", ["PADS", "ALL 64"], 1, qlink_ticks=QT)   # ALL 64 (the default since 1.0.26): notes 36..99 play chops 1..64 whatever the bank; PADS: the bank on screen
 # ---- 1.0.24, appended ----
 for i in range(16):   # the FX page's presets as pictures under clear buttons: 0 off, 1 the pad's own, 2 layered after it
     vis("fp%02d" % i, "FX Preset %02d" % i, 3)   # PADS: notes play the bank on screen; ALL 64: notes 36..99 play chops 1..64
