@@ -1,0 +1,13 @@
+/* ChronoStretch 0.7 (tools/html_art/default.css lists every class): dark brushed steel, light engraved type, ice-blue accents. */
+:root { --sheen: 0; --radius: 6px; --title-size: 16px; --label-size: 18px; --seg-size: 16px; --button-size: 17px;
+        --shadow: drop-shadow(0 2px 3px rgba(0, 0, 0, 0.6)); }
+.frame-border { fill: none; stroke: none; }
+.frame-rule { stroke: #3a3e44; }
+.frame-title { font-size: 16px; font-weight: 700; fill: #a6dcf6; letter-spacing: 0.32em; }
+.text { fill: #dfe6ec; font-weight: 600; letter-spacing: 0.16em; }
+.seg-tx { font-weight: 700; letter-spacing: 0.06em; }
+.button-tx { font-weight: 700; letter-spacing: 0.16em; fill: #eef3f7; }
+.box { fill: #07080b; stroke: #000000; stroke-width: 1.5; }
+.arrow-bg { fill: #2a2d33; stroke: #000000; stroke-width: 1; }
+.arrow { fill: #a6dcf6; }
+.box-label { fill: #c9d2d9; letter-spacing: 0.2em; }

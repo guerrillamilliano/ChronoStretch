@@ -1,0 +1,36 @@
+{
+ "name": "ChronoStretch",
+ "vendor": "Milliano",
+ "uid": "MChr",
+ "version": 1000,
+ "so": "chrono.so",
+ "params": "params.json",
+ "layout": "layout.conf",
+ "art": "html",
+ "tile": "art/tile.png",
+ "skin_post": "skin_post.py",
+ "defines": {
+  "HAS_DISPLAY_REV": 1,
+  "HAS_LFO_BPM": 1,
+  "HAS_TRANSPORT": 1,
+  "DISPLAY_REV_NO_UPDATE": 1,
+  "DISPLAY_REV_FRAMES": 1470,
+  "UPDATE_DISPLAY_FRAMES": 5512,
+  "AUTOMATE_PER_BLOCK": 96,
+  "STEP_TWICE_FRAMES": 19000,
+  "PARAM_TEXT_MAX": 160
+ },
+ "build": {
+  "root": "../..",
+  "sources": [
+   "ports/chrono/src/chrono.c",
+   "ports/chrono/src/pffft/pffft.c"
+  ],
+  "cflags": ["-O2"],
+  "cflags_arm": ["-O3", "-mfpu=neon-vfpv4", "-funsafe-math-optimizations", "-fno-math-errno"],
+  "libs": [
+   "-lm",
+   "-lpthread"
+  ]
+ }
+}
