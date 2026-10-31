@@ -51,6 +51,11 @@
                               * the audio thread; a screen of hundreds of meters that all move at once (a waveform zoomed)
                               * made the sound stutter on a Live II (ChronoStretch 1.0.9: ~650 in one block) */
 #endif
+#ifndef SCAN_PER_BLOCK
+#define SCAN_PER_BLOCK 0 /* (with HAS_DISPLAY_REV) at most this many params read a block after a changed display_rev, the rest
+                          * in the blocks after (0: all at once). Each read is a get_param on the audio thread: on a port of
+                          * hundreds of params a whole scan in one block stands out in a bench's p99 */
+#endif
 #ifndef STEP_TWICE_FRAMES
 #define STEP_TWICE_FRAMES 0 /* a step_of trigger (a +/- pair) pressed again within this many frames is taken as the same
                              * press (0: every press steps). A Live II sent each button twice, ~0.1-0.27 s apart (ChronoStretch
@@ -587,8 +592,8 @@ static void housekeeping(AEffect *e, int32_t n) {
     if (HAS_DISPLAY_REV && w->rev_scan > 0) {
         /* report what the engine changed by itself, so the host moves controls and re-evaluates
          * IndexedEnabling (when= panels), not only text; AUTOMATE_PER_BLOCK spreads a big change over blocks */
-        int sent = 0, i = w->rev_scan - 1;
-        for (; i < NPARAMS && (!AUTOMATE_PER_BLOCK || sent < AUTOMATE_PER_BLOCK); i++) {
+        int sent = 0, i = w->rev_scan - 1, stop = SCAN_PER_BLOCK ? i + SCAN_PER_BLOCK : NPARAMS;
+        for (; i < NPARAMS && i < stop && (!AUTOMATE_PER_BLOCK || sent < AUTOMATE_PER_BLOCK); i++) {
             if (PARAMS[i].momentary || popup_is(i) || PARAMS[i].string_display) continue;
             float v = get_norm(w, i);
             if (fabsf(v - w->last_norm[i]) > 1e-4f) { w->last_norm[i] = v; w->master(&w->fx, audioMasterAutomate, i, 0, 0, v); sent++; }

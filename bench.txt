@@ -1,0 +1,1 @@
+{"plugin":"/tmp/chrono.so","instrument":1,"open_ms":145.2,"p99_pct":34.1,"max_pct":58.5,"threads_pct":11.7,"verdict":"WARN"}

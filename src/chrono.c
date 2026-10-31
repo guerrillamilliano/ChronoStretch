@@ -2569,7 +2569,9 @@ static void browse_row(chrono_t *e, int row, float x) {
 }
 
 /* RANDOM CHOPS: all 64 pads chopped at places picked at random: the sound's hits (any strength) first, then, for a sound
- * with fewer, places anywhere (on a zero crossing when SNAP is on); at least 70 ms apart, in time order through the banks */
+ * with fewer, a place somewhere in each of 128 even cells, visited in random order (on a zero crossing when SNAP is on); at
+ * least 70 ms apart, in time order through the banks. A bounded job: audio waits while a set_param runs (1.0.31 retried up to
+ * 4000 times, 23 ms on a Live II) */
 static void random_chops(chrono_t *e, const inst_t *in) {
     long len = in->z.len, hit[256], got[NPADS], gap = (long)(0.07f * SR);
     if (len < 4096) return;
@@ -2578,8 +2580,14 @@ static void random_chops(chrono_t *e, const inst_t *in) {
         int j = (int)((frand(e) * 0.5f + 0.5f) * (i + 1)); j = j > i ? i : j;
         long t = hit[i]; hit[i] = hit[j]; hit[j] = t;
     }
-    for (int t = 0; ng < NPADS && t < nh + 4000; t++) {
-        long f = t < nh ? hit[t] : snap_cue(e, in, (long)((frand(e) * 0.5f + 0.5f) * (len - 4096)));
+    unsigned char cell[128];
+    for (int i = 0; i < 128; i++) cell[i] = (unsigned char)i;
+    for (int i = 127; i > 0; i--) {
+        int j = (int)((frand(e) * 0.5f + 0.5f) * (i + 1)); j = j > i ? i : j;
+        unsigned char t = cell[i]; cell[i] = cell[j]; cell[j] = t;
+    }
+    for (int t = 0; ng < NPADS && t < nh + 128; t++) {
+        long f = t < nh ? hit[t] : snap_cue(e, in, (long)((cell[t - nh] + (frand(e) * 0.5f + 0.5f)) / 128 * (len - 4096)));
         int clash = 0;
         for (int k = 0; k < ng && !clash; k++) clash = labs(got[k] - f) < gap;
         if (!clash) got[ng++] = f;

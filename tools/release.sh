@@ -7,7 +7,7 @@ V="$1"
 python3 ../../tools/release.py --so build/chrono.so --skin "build/skin/Milliano - VST - ChronoStretch" \
     --entry build/pluginlist-entry.xml --version "$V" \
     --extra User-README.txt:User/README.txt --extra LICENSE:LICENSE.txt \
-    --extra THIRD-PARTY-NOTICES.md:THIRD-PARTY-NOTICES.md --user-data User \
+    --extra THIRD-PARTY-NOTICES.md:THIRD-PARTY-NOTICES.md --user-data User --bench bench.txt \
     --repo guerrillamilliano/ChronoStretch --license MIT --id chronostretch \
     --about "A cue sampler: finds the BPM, key and hits of your WAVs, browses and previews your drives, chops a sound by transient, slices, beat or by hand across 64 pads in four banks on a zoomable waveform, plays them in time and in key with MPC, with per-pad controls, per-pad FX presets, undo and drum removal." \
     -o dist

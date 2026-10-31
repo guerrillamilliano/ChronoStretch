@@ -33,12 +33,17 @@ the full user guide.
 - **Output:** 32-bit float to MPC, clean below a limiter that only acts near full scale.
 - **MPC's STOP** stops everything while a sequence plays; the on-screen STOP buttons always do.
 
+## CPU
+
+Measured on an MPC Live II (`tools/bench.sh`, 1.0.32): **WARN**, p99 32.5-34.1% of a block, worst block 57-62%, 16 voices
+about 7% on average. Fine for one or two instances alongside a normal project. See `bench.txt`.
+
 ## Build
 
 ChronoStretch is a port for [sd88me/mpc-vst-plugins](https://github.com/sd88me/mpc-vst-plugins) (MIT), which provides
 the VST2 wrapper, skin builder and toolchain. It is not included here, except for two files: `toolkit/wrapper/` holds
 that toolkit's `vst2_wrap.c` and `engine.h` with changes ChronoStretch relies on (`AUTOMATE_PER_BLOCK`,
-`STEP_TWICE_FRAMES`, `DISPLAY_REV_FRAMES`, `UPDATE_DISPLAY_FRAMES`, opt-in through `vst.json`, and the optional float
+`STEP_TWICE_FRAMES`, `SCAN_PER_BLOCK`, `DISPLAY_REV_FRAMES`, `UPDATE_DISPLAY_FRAMES`, opt-in through `vst.json`, and the optional float
 output `mpc_engine_render_f`). Their licence is `toolkit/LICENSE`.
 
 1. Clone mpc-vst-plugins, copy this repo's files (except `windows/` and `toolkit/`) into `ports/chrono/`, and

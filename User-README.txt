@@ -84,3 +84,6 @@ Pads
 The SOUND page shows the note each pad hit sends and which pad it played ("LAST: NOTE 72 > PAD A1"). If the pads
 play the wrong chops, tap RESET PADS. If your pads send other notes, tap LEARN PADS and hit pads 1 to 16 in order;
 tap it again to cancel (it also gives up after 20 seconds of no hits).
+
+CPU: ChronoStretch is a heavy plugin. Measured on an MPC Live II it rates WARN (the toolkit's bench: the busiest 1% of blocks
+take up to 34% of a core, the worst block 62%), which means one or two instances alongside a normal project.
