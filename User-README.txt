@@ -7,10 +7,10 @@ ChronoStretch: quick start
    Up to 64 chops, numbered 1-64 through banks A-D: set BANK (top right) and the same pads play that bank (17-32 on B,
    33-48 on C, 49-64 on D). CUES sets how many (16, 32, 48 or 64; 64 to start). The other banks' chops show on the
    waveform too, as faded lines in their pads' colours.
-   MIDI KEYS (SOUND page): ALL 64 (the default) lets a keyboard play every chop from any bank: C1 (note 36) is chop 1,
+   MIDI KEYS (top right of the main page, and the SOUND page): KEYS lets a keyboard play every chop from any bank: C1 (note 36) is chop 1,
    up to D#6 (note 99) for chop 64; BANK only changes what the screen shows. The MPC's own pads follow the same notes:
    set the track's pads to chromatic notes from C1 (36) and pads 1-16 play chops 1-16. PADS plays the bank on screen
-   instead (pads in any note layout, LEARN PADS).
+   instead (pads in any note layout, LEARN PADS); it is the default.
 3. The chops play in time with your project (SYNC ON follows MPC's tempo) and in the key you pick. KEY - and + on
    the main page move the sound a semitone at a time; the box between them shows the sound's key and the key it now
    plays in (C MIN > D MIN). The tempo stays the same. The line above the waveform shows the tempo and key.

@@ -23,23 +23,26 @@ the full user guide.
   SNAP ZERO CROSS for clean loop starts; ADD, DEL and a 10-step UNDO.
 - **Playing:** in time with the project (SYNC, 1/2 SPEED for double-time patterns) and in key (KEY - and + by
   semitones, tempo kept). Per pad: level, filter, attack, release, pitch, speed, reverse, length, mode (ONE SHOT,
-  CONTINUE, GATE, HOLD), choke groups and layer groups (pads that play together). MIDI KEYS ALL 64 lets a keyboard
-  play every chop from C1 up, across all banks (the default).
+  CONTINUE, GATE, HOLD), choke groups and layer groups (pads that play together). MIDI KEYS (KEYS) lets a keyboard
+  play every chop from C1 up, across all banks.
 - **FX per pad:** 16 presets (LOFI, TELEPHONE, filters, shelves, NOTCH, SWEEP, RISER, ROBOT, RADIO, V CURVE,
   WARP-SPEED half-time, TAPE) with AMOUNT, SWEEP / RISE, MIX, DRIVE, TONE, WIDTH and RESONANCE. Double-tap presets to
   layer up to 4 on a pad; the page lights them all.
-- **Drums:** a harmonic/percussive split in the background, then drums OFF or SOLO, for the whole sound or per pad.
+- **Drums:** a two-pass harmonic/percussive split in the background (long windows for pitch, short for hits), then
+  drums OFF or SOLO, for the whole sound or per pad.
+- **Output:** 32-bit float to MPC, clean below a limiter that only acts near full scale.
 - **MPC's STOP** stops everything while a sequence plays; the on-screen STOP buttons always do.
 
 ## Build
 
 ChronoStretch is a port for [sd88me/mpc-vst-plugins](https://github.com/sd88me/mpc-vst-plugins) (MIT), which provides
-the VST2 wrapper, skin builder and toolchain. It is not included here, except for one file: `toolkit/wrapper/vst2_wrap.c`
-is that toolkit's wrapper with changes ChronoStretch relies on (`AUTOMATE_PER_BLOCK`, `STEP_TWICE_FRAMES`,
-`DISPLAY_REV_FRAMES`, `UPDATE_DISPLAY_FRAMES`, all opt-in through `vst.json`). Its licence is `toolkit/LICENSE`.
+the VST2 wrapper, skin builder and toolchain. It is not included here, except for two files: `toolkit/wrapper/` holds
+that toolkit's `vst2_wrap.c` and `engine.h` with changes ChronoStretch relies on (`AUTOMATE_PER_BLOCK`,
+`STEP_TWICE_FRAMES`, `DISPLAY_REV_FRAMES`, `UPDATE_DISPLAY_FRAMES`, opt-in through `vst.json`, and the optional float
+output `mpc_engine_render_f`). Their licence is `toolkit/LICENSE`.
 
 1. Clone mpc-vst-plugins, copy this repo's files (except `windows/` and `toolkit/`) into `ports/chrono/`, and
-   `toolkit/wrapper/vst2_wrap.c` over the toolkit's `wrapper/vst2_wrap.c`.
+   `toolkit/wrapper/`'s two files over the toolkit's `wrapper/`.
 2. Generate the parameters and the art: `tools/gen.ps1` (Docker), or `python3 tools/gen_params.py` and
    `python3 art/make_art.py` (needs Pillow; run inside the toolkit, whose `tools/html_art/fonts` Titillium it uses).
 3. Build: `tools/build_port.sh ports/chrono/vst.json` from the toolkit's root. On Windows with Docker Desktop only, use

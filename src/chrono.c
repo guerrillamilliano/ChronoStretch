@@ -15,8 +15,9 @@
  * above), attack and release, reverse, a key shift, a speed, a mode (one shot, continue, gate, hold), a choke group, a
  * length (to the next cue, in beats or bars, or to the end) and its own drum setting. Keyboard plays the
  * selected pad's cue chromatically (C3 = as is). The p_* controls edit the selected pad.
- * Drums: after the analysis the worker separates the sound's drums (harmonic/percussive separation with median filters on
- * a 2048-point STFT, soft masks) into a layer of its own; FULL, NO DRUMS (the sound minus the layer) and DRUMS ONLY are a
+ * Drums: after the analysis the worker separates the sound's drums (harmonic/percussive separation with median filters in
+ * two passes: a 4096-point STFT takes out the tonal part, a 1024-point one keeps the hits of the rest; hp_pass) into a layer
+ * of its own; FULL, NO DRUMS (the sound minus the layer) and DRUMS ONLY are a
  * gain per layer as a voice reads the sound. (The vocals params are left from a plan dropped in 1.0.1: unused.)
  * Every pad's settings and the cues are in the state ("pN=...;cues=...;"), with the sound by name. */
 #define _GNU_SOURCE
@@ -52,10 +53,14 @@
 #define MAX_HITS 1024      /* hits kept for the stretch (render_voice) */
 #define NBUILTIN 8
 #define ON_HOP 512         /* the onset envelope's hop */
-#define HP_N 2048          /* the drum separation's STFT */
-#define HP_HOP 512
-#define HP_MED_T 31        /* its median filters: across time, frames (about 360 ms, longer than a kick) */
-#define HP_MED_F 17        /* and across frequency, bins (about 370 Hz) */
+/* the drum separation: two passes (hp_pass). The first, long-windowed (fine in pitch), takes out what is tonal; the second,
+ * short-windowed (fine in time), keeps the hits of what is left */
+#define HP1_N 4096         /* pass 1's STFT (hop N/4) */
+#define HP1_MED_T 17       /* its median filters: across time, frames (about 400 ms, longer than a kick) */
+#define HP1_MED_F 31       /* and across frequency, bins (about 330 Hz) */
+#define HP2_N 1024         /* pass 2's */
+#define HP2_MED_T 21       /* about 120 ms: a hit is shorter, a note still on is longer */
+#define HP2_MED_F 17       /* about 730 Hz */
 #define KEY_MIN_TONAL 0.10 /* the share of a sound's energy in clear spectral peaks below which it has no key (set by test/keytest) */
 #define LEARN_WAIT_S 20    /* LEARN PADS gives up after this long without a pad hit */
 #define DRAG_GAP_BLOCKS 140   /* a tab drag paused this long (about 0.4 s) grabs again: a new gesture */
@@ -807,25 +812,29 @@ static float median(float *a, int n) {   /* quickselect; a is scrambled */
     return a[k];
 }
 
-/* fills in->drums; stops early (and returns 0) when *abort_gen moves from gen */
-static int separate_drums(inst_t *in, const volatile int *abort_gen, int gen) {
-    const zone_t *z = &in->z;
-    int N = HP_N, M = N / 2, H = HP_HOP, Q = HP_MED_T, C = Q / 2, CF = HP_MED_F / 2, nch = z->nch, kick_bins = (int)(300.0f * N / SR);
+/* one pass of harmonic/percussive separation, streamed frame by frame: src (interleaved, nch channels, len frames) through an
+ * N-point STFT (hop N/4) with median filters across time (Q frames: the sustained part) and across frequency (F bins: the
+ * broadband part), soft masks from the left and right channels' sum. keep 0: what is not sustained (src minus its tonal
+ * part); 1: what is broadband (the hits). Below ~300 Hz a kick is a short tone, not a click: there, energy above the
+ * sustained level counts as a hit too. dst may be src: each frame is read before the frames behind it are written.
+ * pct0..pct1: in->drums_pct over the pass. 0 when *abort_gen moves from gen */
+static int hp_pass(inst_t *in, const int16_t *src, int16_t *dst, long len, int nch, int N, int Q, int F, int keep,
+                   const volatile int *abort_gen, int gen, int pct0, int pct1) {
+    int M = N / 2, H = N / 4, C = Q / 2, CF = F / 2, kick_bins = (int)(300.0f * N / SR), lo_keep = (int)(250.0f * N / SR);
     fft_t t;
     if (!fft_init(&t, N)) { fft_free(&t); return 0; }
-    in->drums = calloc((size_t)z->len * nch, sizeof(int16_t));
     float *spec = malloc(sizeof(float) * (size_t)Q * 2 * (N + 2));   /* a ring of Q frames' spectra, per channel */
     float *mag = malloc(sizeof(float) * (size_t)Q * (M + 1));       /* and their mid magnitudes */
     float *x = malloc(sizeof(float) * N), *Y = malloc(sizeof(float) * (N + 2)), *ola = calloc((size_t)2 * N, sizeof(float));
-    float *col = malloc(sizeof(float) * Q), *row = malloc(sizeof(float) * Q), *mask = malloc(sizeof(float) * (M + 1));
-    int ok = in->drums && spec && mag && x && Y && ola && col && row && mask;
-    long frames = z->len / H + N / H + C + 1;   /* frame f starts at (f - N/H + 1) * H, so the sound's start is covered */
+    float *col = malloc(sizeof(float) * Q), *row = malloc(sizeof(float) * (F + 1)), *mask = malloc(sizeof(float) * (M + 1));
+    int ok = spec && mag && x && Y && ola && col && row && mask;
+    long frames = len / H + N / H + C + 1;   /* frame f starts at (f - N/H + 1) * H, so the sound's start is covered */
     for (long f = 0; ok && f < frames; f++) {
         if (*abort_gen != gen) { ok = 0; break; }
-        long s = (f - N / H + 1) * H;
+        long st = (f - N / H + 1) * H;
         int slot = (int)(f % Q);
         for (int c = 0; c < nch; c++) {
-            for (int i = 0; i < N; i++) x[i] = zsample(z, s + i, c) * t.hann[i];
+            for (int i = 0; i < N; i++) { long k = st + i; x[i] = (k < 0 || k >= len ? 0 : src[k * nch + c] * (1.0f / 32768.0f)) * t.hann[i]; }
             rfft(&t, x, spec + ((size_t)slot * 2 + c) * (N + 2));
         }
         const float *L = spec + (size_t)slot * 2 * (N + 2), *R = nch == 2 ? L + (N + 2) : L;
@@ -835,15 +844,16 @@ static int separate_drums(inst_t *in, const volatile int *abort_gen, int gen) {
         int cs = (int)(fc % Q);
         const float *cm = mag + (size_t)cs * (M + 1);
         for (int k = 0; k <= M; k++) {
-            for (int q = 0; q < Q; q++) col[q] = mag[(size_t)q * (M + 1) + k];   /* across time: the harmonic part */
+            for (int q = 0; q < Q; q++) col[q] = mag[(size_t)q * (M + 1) + k];
             float h = median(col, Q);
             int n = 0;
-            for (int j = k - CF; j <= k + CF; j++) row[n++] = j < 0 || j > M ? 0 : cm[j];   /* across frequency: the percussive */
-            float p = median(row, n);
-            /* below ~300 Hz a kick is a short tone, not a broadband click: there, energy above the sustained level is
-             * percussive too */
-            if (k <= kick_bins && cm[k] - h > p) p = cm[k] - h;
-            mask[k] = p * p / (p * p + h * h + 1e-12f);
+            for (int j = k - CF; j <= k + CF; j++) row[n++] = j < 0 || j > M ? 0 : cm[j];
+            float pc = median(row, n);
+            if (k <= kick_bins && cm[k] - h > pc) pc = cm[k] - h;
+            float h2 = h * h, p2 = pc * pc;
+            mask[k] = keep ? p2 / (p2 + h2 + 1e-12f) : 1 - h2 / (h2 + p2 + 1e-12f);
+            if (keep && k < lo_keep + 3)   /* the low end as pass 1 left it: a long kick's body is a hit, not a held note */
+                mask[k] = k <= lo_keep ? 1 : mask[k] + (1 - mask[k]) * (lo_keep + 3 - k) / 3.0f;
         }
         long cstart = (fc - N / H + 1) * H;
         for (int c = 0; c < nch; c++) {
@@ -853,16 +863,27 @@ static int separate_drums(inst_t *in, const volatile int *abort_gen, int gen) {
             float *o = ola + (size_t)c * N;
             for (int i = 0; i < N; i++) o[i] += x[i] * t.hann[i] * (1.0f / 1.5f);
             for (int i = 0; i < H; i++) {
-                long p = cstart + i;
-                if (p >= 0 && p < z->len) in->drums[p * nch + c] = (int16_t)lrintf(clampf(o[i], -1, 1) * 32767.0f);
+                long q = cstart + i;
+                if (q >= 0 && q < len) dst[q * nch + c] = (int16_t)lrintf(clampf(o[i], -1, 1) * 32767.0f);
             }
             memmove(o, o + H, sizeof(float) * (N - H));
             memset(o + N - H, 0, sizeof(float) * H);
         }
-        in->drums_pct = (int)(100 * f / frames);
+        in->drums_pct = pct0 + (int)((pct1 - pct0) * f / frames);
     }
     free(spec); free(mag); free(x); free(Y); free(ola); free(col); free(row); free(mask);
     fft_free(&t);
+    return ok;
+}
+
+/* fills in->drums: the sound without its tonal part (pass 1, fine in pitch: bass and keys out cleanly), then that one's hits
+ * (pass 2, fine in time: sharp drums, no smear around them), in place. 0 (stopped early) when *abort_gen moves from gen */
+static int separate_drums(inst_t *in, const volatile int *abort_gen, int gen) {
+    const zone_t *z = &in->z;
+    in->drums = calloc((size_t)z->len * z->nch, sizeof(int16_t));
+    int ok = in->drums
+          && hp_pass(in, z->data, in->drums, z->len, z->nch, HP1_N, HP1_MED_T, HP1_MED_F, 0, abort_gen, gen, 0, 60)
+          && hp_pass(in, in->drums, in->drums, z->len, z->nch, HP2_N, HP2_MED_T, HP2_MED_F, 1, abort_gen, gen, 60, 100);
     if (ok) { analyse_key(in); __atomic_store_n(&in->drums_ready, 1, __ATOMIC_RELEASE); }   /* the key again, without the drums */
     return ok;
 }
@@ -1759,7 +1780,7 @@ static void save_padmap(const chrono_t *e) {   /* the worker */
 }
 
 static int pad_for_note(const chrono_t *e, int note) {
-    if (opt(e, P_KEYMAP) == 1) return note >= 36 && note < 36 + NPADS ? note - 36 : -1;   /* MIDI KEYS ALL 64: a keyboard over all banks */
+    if (opt(e, P_KEYMAP) == 1) return note >= 36 && note < 36 + NPADS ? note - 36 : -1;   /* MIDI KEYS on KEYS: a keyboard over all banks */
     int m = note >= 0 && note < 128 ? e->padmap[note] : -1;
     if (m < 0) return -1;
     int bank = opt(e, P_BANK), pair = bank >= 2 ? 32 : 0;   /* C and D: A and B 32 chops on */
@@ -3361,7 +3382,17 @@ int mpc_engine_changed(void *inst, char *key, int len) {   /* one moved paramete
 }
 
 /* ---- render ---- */
-static void render(void *inst, int16_t *out_lr, int frames) {
+/* linear up to 0.95, then a knee that reaches 1.0 only far beyond it: no hard edge */
+static inline float soft_knee(float x) {
+    float a = fabsf(x);
+    if (a <= 0.95f) return x;
+    float y = 0.95f + 0.05f * fast_tanh((a - 0.95f) / 0.05f);
+    return x < 0 ? -y : y;
+}
+
+/* one block, as floats (interleaved stereo, frames <= 128): the wrapper takes these as they are (mpc_engine_render_f), so
+ * nothing is rounded to 16 bits on the way to MPC */
+static void render_f(void *inst, float *out_lr, int frames) {
     chrono_t *e = inst;
     if (!pthread_mutex_trylock(&e->mu)) {   /* pick up a freshly loaded sound, or a preview */
         br_coast(e);
@@ -3423,6 +3454,9 @@ static void render(void *inst, int16_t *out_lr, int frames) {
     if (e->learn > 0 && (e->learn_frames -= frames) <= 0) learn_cancel(e);
     if (e->trig_frames > 0) e->trig_frames -= frames;
     if (e->unmapped_frames > 0) e->unmapped_frames -= frames;
+    /* the output: untouched below 0.89 (about -1 dB); above, a limiter brings the level back down smoothly, and a soft knee
+     * over the last few percent keeps a sudden peak off the hard edge (1.0.31: a tanh on every sample before coloured
+     * all of it, about 1% distortion at half level) */
     float vol = db2lin(e->val[P_VOLUME]), lim_rel = expf(-1.0f / (0.12f * SR));
     for (int i = 0; i < frames; i++) {
         float l = L[i] * vol, r = R[i] * vol;
@@ -3430,11 +3464,19 @@ static void render(void *inst, int16_t *out_lr, int frames) {
         e->lim_env = pk > e->lim_env ? pk : lim_rel * e->lim_env + (1 - lim_rel) * pk;
         float tg = e->lim_env > 0.89f ? 0.89f / e->lim_env : 1.0f;
         e->lim_g += (tg < e->lim_g ? 0.5f : 0.0005f) * (tg - e->lim_g);
-        l = fast_tanh(l * e->lim_g * 1.05f); r = fast_tanh(r * e->lim_g * 1.05f);
-        out_lr[2 * i] = (int16_t)lrintf(clampf(l, -1, 1) * 32767.0f);
-        out_lr[2 * i + 1] = (int16_t)lrintf(clampf(r, -1, 1) * 32767.0f);
+        out_lr[2 * i] = soft_knee(l * e->lim_g); out_lr[2 * i + 1] = soft_knee(r * e->lim_g);
     }
 }
+/* the same, rounded to 16 bits (the toolkit's render, for a host without the float path, and the tests) */
+static void render(void *inst, int16_t *out_lr, int frames) {
+    float f[2 * 128];
+    for (int at = 0; at < frames; at += 128) {
+        int n = frames - at < 128 ? frames - at : 128;
+        render_f(inst, f, n);
+        for (int i = 0; i < 2 * n; i++) out_lr[2 * at + i] = (int16_t)lrintf(clampf(f[i], -1, 1) * 32767.0f);
+    }
+}
+void mpc_engine_render_f(void *inst, float *out_lr, int frames) { render_f(inst, out_lr, frames); }
 
 static const mpc_engine_t ENGINE = { create, destroy, midi, set_param, get_param, render, NULL, NULL };
 const mpc_engine_t *mpc_engine(void) { return &ENGINE; }

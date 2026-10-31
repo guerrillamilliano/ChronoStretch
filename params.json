@@ -874,7 +874,7 @@
   {"key": "fl13", "name": "FX Layer 13", "momentary": true},
   {"key": "fl14", "name": "FX Layer 14", "momentary": true},
   {"key": "fl15", "name": "FX Layer 15", "momentary": true},
-  {"key": "keymap", "name": "MIDI Keys", "options": ["PADS", "ALL 64"], "default": 1, "qlink_ticks": 3},
+  {"key": "keymap", "name": "MIDI Keys", "options": ["PADS", "KEYS"], "default": 0, "qlink_ticks": 3},
   {"key": "fp00", "name": "FX Preset 00", "options": ["0", "1", "2"], "default": 0},
   {"key": "fp01", "name": "FX Preset 01", "options": ["0", "1", "2"], "default": 0},
   {"key": "fp02", "name": "FX Preset 02", "options": ["0", "1", "2"], "default": 0},

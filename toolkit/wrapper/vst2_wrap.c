@@ -145,6 +145,7 @@ typedef struct {
     audioMasterCallback master;
     void *dsp;
     int16_t block[DSP_BLOCK * 2];
+    float fblock[DSP_BLOCK * 2];      /* the block when the engine renders in float (mpc_engine_render_f) */
     int pos;                 /* read position in block; DSP_BLOCK = empty */
     int16_t inb[DSP_BLOCK * 2];   /* effect: the host audio being collected for the engine */
     int inpos;
@@ -202,6 +203,9 @@ static void eng_midi(wrap_t *w, const uint8_t *m, int n) {
 }
 static void eng_render(wrap_t *w, int16_t *out, int n) {
     pthread_mutex_lock(&w->lock); g_api->render(w->dsp, out, n); pthread_mutex_unlock(&w->lock);
+}
+static void eng_render_f(wrap_t *w, float *out, int n) {
+    pthread_mutex_lock(&w->lock); mpc_engine_render_f(w->dsp, out, n); pthread_mutex_unlock(&w->lock);
 }
 #ifdef PLUG_EFFECT
 static void eng_process(wrap_t *w, const int16_t *in, int16_t *out, int n) {
@@ -450,12 +454,14 @@ static void update_tempo(wrap_t *w, int32_t n) {
  * processReplacing, but a NULL e->process would crash any host that tried the old call. */
 #if !SAMPLE_ACCURATE
 static void render_frames(wrap_t *w, float **out, int32_t n, int accumulate) {
+    int fl = mpc_engine_render_f != NULL;   /* the engine renders in float: no 16-bit step */
     for (int32_t i = 0; i < n; i++) {
         if (w->pos >= DSP_BLOCK) {
-            eng_render(w, w->block, DSP_BLOCK);
+            if (fl) eng_render_f(w, w->fblock, DSP_BLOCK); else eng_render(w, w->block, DSP_BLOCK);
             w->pos = 0;
         }
-        float l = w->block[w->pos * 2] * (1.0f / 32768.0f), r = w->block[w->pos * 2 + 1] * (1.0f / 32768.0f);
+        float l = fl ? w->fblock[w->pos * 2] : w->block[w->pos * 2] * (1.0f / 32768.0f);
+        float r = fl ? w->fblock[w->pos * 2 + 1] : w->block[w->pos * 2 + 1] * (1.0f / 32768.0f);
         if (accumulate) { out[0][i] += l; out[1][i] += r; }
         else { out[0][i] = l; out[1][i] = r; }
         w->pos++;

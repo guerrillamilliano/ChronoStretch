@@ -587,7 +587,7 @@ MAIN_Q = ["zoom", "scroll", "p_pos", "p_nudge", "sensitivity", "chop_mode", "pit
           "play_mode", "sync", "chop_div", "cue_count"]
 L.append("qlinks_track = " + ",".join(MAIN_Q))
 # options of a control shown on two pages: one width everywhere (the builder draws one set of images per parameter)
-SW = {"sync": 58, "play_mode": 104, "drums": 62, "bank": 38}
+SW = {"sync": 58, "play_mode": 104, "drums": 62, "bank": 38, "keymap": 66}
 
 
 Image.open(os.path.join(HERE, "logo.png")).resize(LOGO[2:], Image.LANCZOS).save(os.path.join(HERE, "logo_s.png"))   # the logo at its size
@@ -622,10 +622,12 @@ TD_W = MK_STEP - 2                       # a tab drag strip: one per tab slot
 L.append("[tab MAIN]")
 L += head("bg_main.png")
 L.append(sound_stepper(HEAD_X, HEAD_W))
-L.append('text cx=820 cy=109 label="SYNC"')   # top right, in the top bar: the tempo
-L.append('enum_h cx=912 cy=114 label="" key=sync sw=%d' % SW["sync"])
-L.append('text cx=1064 cy=109 label="1/2 SPEED"')   # half the project's tempo: double-time patterns
-L.append('toggle cx=1186 cy=114 label="" key=half ns=0 w=72 h=34')   # a switch like FX ON's
+L.append('text cx=820 cy=110 label="SYNC" size=0.85')   # top right, in the top bar: SYNC and 1/2 SPEED, each a name and its switch, then MIDI KEYS
+L.append('toggle cx=882 cy=114 label="" key=sync ns=0 w=60 h=30')
+L.append('text cx=957 cy=101 label="1/2" size=0.7')   # half the project's tempo (double-time patterns): 1/2 over SPEED
+L.append('text cx=957 cy=120 label="SPEED" size=0.7')
+L.append('toggle cx=1024 cy=114 label="" key=half ns=0 w=60 h=30')
+L.append('enum_h cx=1147 cy=114 label="" key=keymap sw=%d' % SW["keymap"])   # MIDI KEYS: PADS (the bank on screen) or KEYS (every chop)
 L.append('readout cx=640 cy=172 w=1160 h=30 label="" key=disp_info box=0 tsize=21 tcolor=dfe4ea talign=center')
 for i in range(NCOL):
     L.append('meter cx=%d cy=%d w=%d h=%d key=wv%03d strip=art/wv_strip.png frames=%d'
@@ -742,7 +744,7 @@ for k, n, cx in (("key", "MOVE TO KEY", 745), ("sound_key", "SOUND KEY", 955), (
 L += key_group(955, 328, 200)[1:]
 L.append('frame x=20 y=360 w=620 h=170 title="DRUMS AND MIDI KEYS"')
 L.append('enum_h cx=170 cy=450 label="DRUMS" key=drums sw=%d' % SW["drums"])
-L.append('enum_h cx=480 cy=450 label="MIDI KEYS" key=keymap sw=96')   # ALL 64: a keyboard plays every bank's chops
+L.append('enum_h cx=480 cy=450 label="MIDI KEYS" key=keymap sw=%d' % SW["keymap"])   # ALL 64: a keyboard plays every bank's chops
 L.append('frame x=650 y=360 w=610 h=170 title="CHOPS"')
 L.append('button cx=710 cy=420 w=%d h=%d label="RANDOM" key=chop_rand' % (RAND_W, BTN_H))
 L.append('button cx=710 cy=482 w=%d h=%d label="CLEAR" key=clear_cues' % (BTN_W, BTN_H))

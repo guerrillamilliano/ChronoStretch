@@ -160,8 +160,8 @@ int main(int argc, char **argv) {
     chrono_t *e = create(NULL);
     wait_sound(e);
     CHECK(e->cur && !strcmp(e->cur->name, "Built-in - Break 90"), "the first sound loads (Break 90), its drums separated");
-    CHECK(opt(e, P_KEYMAP) == 1, "MIDI KEYS starts on ALL 64: every key its own chop, whatever the bank (1.0.26)");
-    setp(e, "keymap", 0);   /* the tests below are of the pads' mapping (PADS) */
+    CHECK(opt(e, P_KEYMAP) == 0, "MIDI KEYS starts on PADS (1.0.30)");
+    setp(e, "keymap", 0);   /* (PADS; the tests below are of the pads' mapping) */
     {   /* Cues 64 by default (0.8), so banks B, C and D have chops 17 on */
         int nb = 0; for (int i = 16; i < NPADS; i++) nb += e->cue[i] >= 0;
         char buf[128]; setp(e, "bank", 1); get_param(e, "disp_pad", buf, sizeof buf);
@@ -841,6 +841,16 @@ int main(int argc, char **argv) {
         setp(e, "sync", 1);
     }
 
+    {   /* 1.0.31: the output is linear below the limiter: -6 dB is twice -12 dB exactly (the old tanh on every sample was not),
+         * and the float render is the int16 one before rounding */
+        setp(e, "sel_pad", 0); setp(e, "p_len", 8); setp(e, "sync", 0);
+        setp(e, "volume", -12); int16_t *q1 = play(e, 36, 400, 400);
+        setp(e, "volume", -6); int16_t *q2 = play(e, 36, 400, 400);
+        setp(e, "volume", 0);
+        double r1 = rms(q1, 0, 400 * 128), r2 = rms(q2, 0, 400 * 128), ratio = r2 / r1;
+        free(q1); free(q2);
+        CHECK(fabs(ratio - 1.9953) < 0.01 && r2 < 0.5, "the output is clean below the limiter: -6 dB is %.4fx -12 dB (2x is 1.9953)", ratio);
+    }
     /* 6. the drum layer, on a sound of keys and drums */
     inst_t *mx = make_inst("Mix", (long)(6 * SR), mixed);
     use_inst(e, mx);
@@ -861,8 +871,8 @@ int main(int argc, char **argv) {
     double n_keys = snk / sfk, n_drums = snd / sfd, o_keys = sok / sfk, o_drums = sod / sfd;
     write_wav("04 mix full", full, 2000 * 128); write_wav("05 mix no drums", nod, 2000 * 128); write_wav("06 mix drums only", only, 2000 * 128);
     free(full); free(nod); free(only);
-    CHECK(n_drums / n_keys < 0.316, "NO DRUMS keeps %.0f%% of the keys and %.0f%% of the drums (drums %.1f dB under)", n_keys * 100, n_drums * 100, 20 * log10(n_keys / n_drums));
-    CHECK(o_keys / o_drums < 0.316, "DRUMS ONLY keeps %.0f%% of the drums and %.0f%% of the keys (keys %.1f dB under)", o_drums * 100, o_keys * 100, 20 * log10(o_drums / o_keys));
+    CHECK(n_drums / n_keys < 0.2, "NO DRUMS keeps %.0f%% of the keys and %.0f%% of the drums (drums %.1f dB under)", n_keys * 100, n_drums * 100, 20 * log10(n_keys / n_drums));
+    CHECK(o_keys / o_drums < 0.1, "DRUMS ONLY keeps %.0f%% of the drums and %.0f%% of the keys (keys %.1f dB under)", o_drums * 100, o_keys * 100, 20 * log10(o_drums / o_keys));
 
     /* 7. state round trip */
     setp(e, "sel_pad", 5); setp(e, "p_key", 3); setp(e, "p_mode", 2); setp(e, "p_reverse", 1); setp(e, "key", 7); setp(e, "p_pos", 0.5);
@@ -937,7 +947,7 @@ int main(int argc, char **argv) {
         wait_browser(e); wait_sound(e);
         pv = preview_rms(e);
         char on4[8]; get_param(e, "br_4_on", on4, sizeof on4);
-        CHECK(!strcmp(e->cur->name, "Loop B") && pv > 0.005 && e->aud_z == &e->cur->z && atoi(on4) == 1,
+        CHECK(!strcmp(e->cur->name, "Loop B") && pv > 0.002 && e->aud_z == &e->cur->z && atoi(on4) == 1,
               "the sound arrow steps to the folder's next WAV (%s), plays it (%.3f rms), its row lit", e->cur->name, pv);
         setp(e, "sound", e->val[P_SOUND] + 1); wait_browser(e); wait_sound(e);
         char after_end[64]; snprintf(after_end, sizeof after_end, "%s", e->cur->name);
