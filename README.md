@@ -10,6 +10,11 @@ Download the zip from [Releases](../../releases), unpack it on the MPC (or a com
 `install.sh`; it stops and restarts MPC. Then add **ChronoStretch** to a plugin track. `User/README.txt` in the zip is
 the full user guide.
 
+**MPC 3.10.1 and later:** switch on *Settings > Enhancements > External Plugin Support*. The installer notices 3.10.1 and
+installs into a `VST2 Plugins` folder (an existing one on an attached drive, otherwise the internal drive's) as
+`Milliano - ChronoStretch`, with the `plugin.json` that MPC needs. It leaves MPC.settings alone and needs no drive-exec patch.
+On older MPC 3 versions it installs as before. Zips downloaded before 13 November 2026 predate this: download again.
+
 ## What it does
 
 - **Browser:** the MPC's internal drive, SSD and USB drives. Drag the list (it coasts after a flick), turn the data
